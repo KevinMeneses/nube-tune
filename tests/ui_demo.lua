@@ -1,0 +1,25 @@
+-- Abre una pestaña de demo: pista con voz (fader en -inf, no suena), Nube Tune con un preset,
+-- ventana del FX flotante y reproducción en loop para ver la gráfica. Cerrar con tests/ui_close.lua.
+local ROOT = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$")
+-- opciones desde tests/reopen.sh (REAPER no hereda las variables de entorno): "preset tonalidad escala archivo"
+local of = io.open(ROOT .. "/out/demo_opts.txt"); local OPT = of and of:read("*l") or ""; if of then of:close() end
+local O_PRESET, O_KEY, O_SCALE, O_FILE = OPT:match("^(%S+)%s+(%S+)%s+(%S+)%s*(%S*)")
+local AUDIO = (O_FILE and O_FILE ~= "") and O_FILE or (ROOT .. "/signals/voz.wav")
+reaper.Main_OnCommand(40859, 0)
+reaper.InsertTrackAtIndex(0, false); local tr = reaper.GetTrack(0, 0)
+reaper.GetSetMediaTrackInfo_String(tr, "P_NAME", "Nube Tune demo", true)
+reaper.SetMediaTrackInfo_Value(tr, "D_VOL", 0)
+local item = reaper.AddMediaItemToTrack(tr); local take = reaper.AddTakeToMediaItem(item)
+local src = reaper.PCM_Source_CreateFromFile(AUDIO); reaper.SetMediaItemTake_Source(take, src)
+reaper.SetMediaItemInfo_Value(item, "D_LENGTH", reaper.GetMediaSourceLength(src))
+reaper.UpdateArrange()
+local fx = reaper.TrackFX_AddByName(tr, "JS:Nube Tune/nube_tune.jsfx", false, -1)
+reaper.TrackFX_SetParam(tr, fx, 20, tonumber(O_PRESET or "2"))
+reaper.TrackFX_SetParam(tr, fx, 11, tonumber(O_KEY or "0"))
+reaper.TrackFX_SetParam(tr, fx, 12, tonumber(O_SCALE or "0"))
+reaper.TrackFX_Show(tr, fx, 3)
+reaper.GetSet_LoopTimeRange(true, true, 0, reaper.GetMediaSourceLength(src), false)
+reaper.SetEditCurPos(0, false, false)
+reaper.GetSetRepeat(1)
+reaper.OnPlayButton()
+local f = io.open(ROOT .. "/out/ui.txt", "w"); f:write("done\n"); f:close()
