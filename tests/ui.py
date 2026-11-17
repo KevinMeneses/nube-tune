@@ -1,21 +1,33 @@
-"""Ayudante para probar la interfaz con cliclick (ventana del FX en su posición/tamaño por defecto)."""
+"""Ayudante para probar la interfaz con cliclick (ventana del FX con su tamaño por defecto, 1000 x 640 de área gráfica).
+Las coordenadas son puntos dentro del área gráfica, calculadas como en @gfx (SC = 1). Mismo arnés que Nube Sampler."""
 import subprocess, time, pathlib, re
-WX, WY = 32, 117.5           # esquina del área gráfica del FX (puntos), medida en una captura
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+R = "/Applications/REAPER.app/Contents/MacOS/REAPER"
+HDR = 52.5                      # cabecera de REAPER (título, presets) sobre el área gráfica
+
+def win():
+    s = subprocess.run(["osascript", "-e", 'tell application "System Events" to tell process "REAPER" to get {position, size} of '
+                        '(first window whose name contains "JS: Nube Tune")'], capture_output=True, text=True).stdout
+    x, y, w, h = [int(v) for v in s.replace(",", " ").split()]; return x, y, w, h
+WX, WY = 32, 117.5
+def locate():
+    global WX, WY
+    x, y, _, _ = win(); WX, WY = x, y + HDR
 def pt(x, y): return f"{round(WX + x)},{round(WY + y)}"
-def cc(*args): subprocess.run(["cliclick", "-w", "60", *args], check=True); time.sleep(0.4)
-def click(x, y):
-    """clic lento (bajar, esperar, subir): JSFX lee el mouse una vez por cuadro y un clic instantáneo se puede perder"""
-    activate(); cc(f"m:{pt(x, y)}"); cc(f"dd:{pt(x, y)}"); cc(f"du:{pt(x, y)}")
-def activate():
-    """clic en el pie (sin controles): cada ui_dump.lua deja la ventana del FX inactiva y el primer clic solo la activa"""
-    cc(f"c:{pt(300, 630)}")
+def cc(*args): subprocess.run(["cliclick", "-w", "100", *args], check=True); time.sleep(0.35)
+def focus(): cc(f"m:{pt(965, 22)}", "w:100", f"dd:{pt(965, 22)}", "w:150", f"du:{pt(965, 22)}", "w:200")     # barra superior sin controles: el primer clic tras un script solo activa la ventana
+activate = focus
+def click(x, y): focus(); cc(f"m:{pt(x, y)}", "w:150", f"dd:{pt(x, y)}", "w:200", f"du:{pt(x, y)}")
+def dclick(x, y): focus(); cc(f"m:{pt(x, y)}", f"dd:{pt(x, y)}", f"du:{pt(x, y)}", f"dd:{pt(x, y)}", f"du:{pt(x, y)}")
+def hover(x, y): focus(); cc(f"m:{pt(x, y)}")
 def wheel(n): subprocess.run(["swift", str(ROOT / "tests/scroll.swift"), str(n)], check=True); time.sleep(0.4)
-def shot(path): subprocess.run(["screencapture", "-x", "-R32,117,1000,640", path], check=True); time.sleep(0.5); activate(); return path
+def shot(path):
+    """captura de la ventana por su id (no la trae al frente ni le quita el foco)"""
+    wid = subprocess.run(["swift", str(ROOT / "tests/winid.swift"), "JS: Nube Tune"], capture_output=True, text=True).stdout.strip()
+    subprocess.run(["screencapture", "-x", "-o", f"-l{wid}", path], check=True); return path
+def lua(name): subprocess.Popen([R, "-nonewinst", str(ROOT / "tests" / name)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 def dump():
-    p = ROOT / "tests/out/dump.txt"; p.unlink(missing_ok=True)
-    subprocess.Popen(["/Applications/REAPER.app/Contents/MacOS/REAPER", "-nonewinst", str(ROOT / "tests/ui_dump.lua")],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p = ROOT / "tests/out/dump.txt"; p.unlink(missing_ok=True); lua("ui_dump.lua")
     for _ in range(40):
         if p.exists() and "done" in p.read_text(): return p.read_text().replace("done\n", "")
         time.sleep(0.25)
@@ -23,12 +35,15 @@ def dump():
 def param(n):
     """valor formateado del slider n"""
     m = re.search(rf"^{n} (.*)$", dump(), re.M); return m.group(1).rsplit(" = ", 1)[1] if m else None
-def num(s): return float(s.split()[0]) if s else float("nan")
+def num(s):
+    try: return float(s.split()[0])
+    except Exception: return float("nan")
 def drag(x0, y0, x1, y1, steps=8):
-    activate(); cc(f"m:{pt(x0, y0)}"); cc(f"dd:{pt(x0, y0)}")
+    focus(); cc(f"m:{pt(x0, y0)}", "w:150", f"dd:{pt(x0, y0)}", "w:250")
     for k in range(1, steps + 1): cc(f"m:{pt(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps)}")
     cc(f"du:{pt(x1, y1)}")
-# layout (ventana 1000x640): dy = 54, dh = 372, py = 436
+
+# ---- layout (área gráfica de 1000 x 640 pt): dy = 54, dh = 372, py = 436
 PY = 436
 PRESETS, TONO, ESCALA, VOZ, MIDI = (208, 22), (322, 22), (476, 22), (673, 22), (850, 22)
 GRAPH = (396, 240); STRIP_X = 30

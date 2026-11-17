@@ -315,9 +315,9 @@ function plan() local(s, a, la, ra, fo, fi, ratio, fr, e, dens, ts)
 // busca la marca siguiente cerca de c: el periodo que termina ahi debe parecerse al que termina en prev
 // (correlacion normalizada, +-8 % del periodo, interpolacion parabolica). Asi las marcas siguen el
 // periodo real aunque la deteccion venga ~25 ms atrasada (vibrato, deslizamientos).
-function refine(prev, c, T) local(L, dr, d, j, ip, ic, s, ep, ec, xp, xc, v, best, bv, vm, vp, den, fr)
+function refine(prev, c, per) local(L, dr, d, j, ip, ic, s, ep, ec, xp, xc, v, best, bv, vm, vp, den, fr)
 (
-  L = floor(T); dr = max(floor(T * 0.08), 1);
+  L = floor(per); dr = max(floor(per * 0.08), 1);
   ip = floor(prev) - L;
   ep = 0; j = 0; loop(L, xp = inM[(ip + j) & RBM]; ep += xp * xp; j += 1; );
   best = 0; bv = -2; d = -dr;

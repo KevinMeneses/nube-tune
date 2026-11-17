@@ -81,7 +81,7 @@ Crea un enlace en `~/Library/Application Support/REAPER/Effects/Nube Tune/`. En 
 
 ## Pruebas
 
-- `tests/run.sh` (`NUBE_PY=/ruta/a/python`): renderiza 54 casos en una pestaña temporal de REAPER y los compara con
+- `tests/run.sh [patrón]` (`NUBE_PY=/ruta/a/python`): renderiza 54 casos en una pestaña temporal de REAPER y los compara con
   la teoría (83 chequeos): afinación exacta (±0.5 cents; medida −0.04 a 48, 44.1 y 96 kHz), las escalas, notas
   personalizadas, transponer ±12 / +7 / −7, La = 432, voz grave a 84 Hz, formantes por LPC (preservar ±1 %, seguir el
   tono +26 %, perilla ±3 st), nivel, periodicidad de la salida, velocidad 0 y 100 ms, flex 50 / 100 %, vibrato
@@ -90,8 +90,11 @@ Crea un enlace en `~/Library/Application Support/REAPER/Effects/Nube Tune/`. En 
   silencio, glissando en escalera sin huecos, aprender tonalidad (melodía en Mi menor → E menor) y la voz real (hard
   tune: desafinación mediana 1.8 ct contra 8 ct de la entrada; 0.2 % de saltos de octava; ±12 st exactos; presets).
   `tests/out/log.txt` trae un diagnóstico del motor (granos que pidieron audio aún no llegado): 0 en todos.
-- `tests/ui_test.py` (+ `ui.py`, `ui_dump.lua`, `scroll.swift`, `reopen.sh`): 24 pruebas de la interfaz con el mouse
-  (`cliclick`). `NUBE_KEY=9 NUBE_SCALE=2 tests/reopen.sh` abre la demo; `tests/ui_close.lua` la cierra.
+- `tests/ui_test.py` (+ `ui.py`, `ui_dump.lua`, `scroll.swift`, `winid.swift`, `reopen.sh`): 24 pruebas de la interfaz
+  con el mouse (`cliclick`), con el mismo arnés de Nube Sampler (ubica la ventana, clic de foco antes de cada acción,
+  capturas por id de ventana; si un evento no llega se repite una vez y se informa). `NUBE_KEY=9 NUBE_SCALE=2
+  tests/reopen.sh` abre la demo; `tests/ui_close.lua` la cierra y `tests/tabs.lua` lista / cierra las pestañas de prueba.
+- `tools/check_names.py`: avisa si dos identificadores solo difieren en mayúsculas (lo corren `run.sh` y `reopen.sh`).
 - `tests/perf.lua`: CPU.
 
 ## Detalles técnicos
