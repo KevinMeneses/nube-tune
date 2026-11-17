@@ -43,10 +43,16 @@ def drag(x0, y0, x1, y1, steps=8):
     for k in range(1, steps + 1): cc(f"m:{pt(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps)}")
     cc(f"du:{pt(x1, y1)}")
 
-# ---- layout (área gráfica de 1000 x 640 pt): dy = 54, dh = 372, py = 436
+def rclick(x, y): focus(); cc(f"m:{pt(x, y)}", "w:150", f"rc:{pt(x, y)}")
+# ---- layout (área gráfica de 1000 x 640 pt): barra de modo en y 50-74, dy = 82, dh = 344, py = 436
 PY = 436
 PRESETS, TONO, ESCALA, VOZ, MIDI = (208, 22), (322, 22), (476, 22), (673, 22), (850, 22)
 GRAPH = (396, 240); STRIP_X = 30
+# barra de modo y editor de notas (en el editor la gráfica va de x 54 a 986; regla de compases y 82-100)
+TB_Y = 62
+TAB_VIVO, TAB_EDITAR = (57, TB_Y), (162, TB_Y)
+DETECTAR, DESHACER, BORRAR, FUERA, COMPARAR = (291, TB_Y), (396, TB_Y), (494, TB_Y), (642, TB_Y), (805, TB_Y)
+REGLA_Y = 91
 KB_Y0 = PY + 28
 WHITE = lambda i: (14 + 42 * i + 21, KB_Y0 + 72)          # 0 = C, 1 = D ... 6 = B
 BLACK = lambda pos: (14 + 42 * pos, KB_Y0 + 26)           # pos 1 = C#, 2 = D#, 4 = F#, 5 = G#, 6 = A#
@@ -55,5 +61,5 @@ KY = PY + 98
 VELOCIDAD = (366, KY)
 KNOB = {"humanizar": (466, KY), "flex": (550, KY), "formantes": (640, KY), "transponer": (724, KY),
         "mezcla": (814, KY), "salida": (898, KY)}
-SMALL = {"vib_prof": (792, 270), "vib_vel": (868, 270), "vib_ret": (944, 270),
-         "sens": (792, 362), "puerta": (868, 362), "la": (944, 362)}
+SMALL = {"vib_prof": (792, 298), "vib_vel": (868, 298), "vib_ret": (944, 298),
+         "sens": (792, 390), "puerta": (868, 390), "la": (944, 390)}

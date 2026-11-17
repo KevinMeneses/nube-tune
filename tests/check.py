@@ -144,6 +144,36 @@ inrange("glissando: sin huecos (cuadro mínimo vs mediana, dB)", 20 * np.log10(f
 m = re.search(r"^caso learn_em .*tonalidad=(\S+) \| escala=(\S+)", log, re.M)
 text("aprender tonalidad: melodía en Mi menor", (m.group(1), m.group(2)) if m else None, ("E", "Menor"))
 
+# ---- notas dibujadas (línea de tiempo del proyecto)
+def notes(name):
+    x, sr = load(name); T, F, A = yin(x, sr, 60); return T, 69 + 12 * np.log2(F / 440)
+def nmed(T, N, t0, t1): return np.nanmedian(N[(T > t0) & (T < t1)])
+T, N = notes("seg_line")
+scalar("nota dibujada Do4 en 1-2 s (cents)", 100 * (nmed(T, N, 1.15, 1.9) - 60), 0, 0.5)
+scalar("antes de la nota: escala (Sol#3, cents)", 100 * (nmed(T, N, 0.3, 0.9) - 56), 0, 0.5)
+scalar("después de la nota: escala (Sol#3, cents)", 100 * (nmed(T, N, 2.15, 3.0) - 56), 0, 0.5)
+m = (T > 0.9) & (T < 1.2); on = T[m][np.argmax(N[m] > 58)]
+m = (T > 1.9) & (T < 2.2); off = T[m][np.argmax(N[m] < 58)]
+inrange("la nota empieza a tiempo (s; YIN marca ~6 ms tarde)", on, 1.0, 1.03)
+inrange("la nota termina a tiempo (s)", off, 2.0, 2.03)
+T, N = notes("seg_glide"); m = (T > 1.15) & (T < 1.85) & np.isfinite(N); k = np.polyfit(T[m], N[m], 1)
+scalar("deslizamiento La3 -> Mi4 en 1 s: pendiente (st/s)", k[0], 7, 0.1)
+inrange("deslizamiento: atraso (ms; YIN marca ~6 ms tarde)", 1000 * (60.5 - np.polyval(k, 1.5)) / 7, 0, 15)
+T, N = notes("seg_nat")
+scalar("fuera de las notas = natural: 213 Hz sin tocar (ct)", 100 * (nmed(T, N, 0.3, 0.9) - (69 + 12 * np.log2(213 / 440))), 0, 1)
+scalar("  y dentro de la nota: La3 (cents)", 100 * (nmed(T, N, 1.15, 1.9) - 57), 0, 0.5)
+T, N = notes("seg_ignore"); scalar("notas ignoradas (A/B): sigue en la escala (ct)", 100 * (nmed(T, N, 1.15, 1.9) - 56), 0, 0.5)
+T, N = notes("seg_tr12")
+scalar("transponer +12: la nota dibujada manda (Do4, ct)", 100 * (nmed(T, N, 1.15, 1.9) - 60), 0, 0.5)
+scalar("  y fuera sube la octava (Sol#4, ct)", 100 * (nmed(T, N, 0.3, 0.9) - 68), 0, 0.5)
+T, N = notes("seg_cents")
+scalar("nota con cents (59.5) recortada por otra (ct)", 100 * (nmed(T, N, 1.1, 1.45) - 59.5), 0, 0.5)
+scalar("  la que la pisa (Do#4, ct)", 100 * (nmed(T, N, 1.6, 2.45) - 61), 0, 0.5)
+T, N = notes("seg_detect")
+text("detectar notas: una nota en la vocal sostenida", re.search(r"^caso seg_detect .*notas=(\S+)", log, re.M).group(1), "1.0")
+scalar("detectar notas (fuera = natural): queda en Sol#3 (ct)", 100 * (nmed(T, N, 0.3, 3.0) - 56), 0, 0.5)
+T, N = notes("seg_reload"); scalar("las notas se guardan con el proyecto (Mi3, ct)", 100 * (nmed(T, N, 1.15, 1.9) - 52), 0, 0.5)
+
 # ---- voz real (si está la grabación)
 if (D / "voz_seca.wav").exists():
     xs, sr = load("voz_seca")
@@ -171,6 +201,11 @@ if (D / "voz_seca.wav").exists():
         x, F, A = voz(n); both = vs & np.isfinite(F)
         scalar(f"{n}: salto medido (semitonos)", np.median(cents(F[both], Fs[both])) / 100, st, 0.3)
         scalar(f"{n}: nivel (dB)", rmsdb(x) - rmsdb(xs), 0, 3)
+    x, F, A = voz("seg_detect_voz"); both = vs & np.isfinite(F)
+    nv = float(re.search(r"^caso seg_detect_voz .*notas=(\S+)", log, re.M).group(1))
+    inrange("voz: detectar notas (cantidad en 30 s)", nv, 20, 200)
+    inrange("voz: notas detectadas = afinada (ct)", np.median(dev(F[both])), 0, 3)
+    scalar("voz: notas detectadas, nivel (dB)", rmsdb(x) - rmsdb(xs), 0, 1.0)
     for p in (4, 5, 6, 9, 10, 11, 12, 13):
         x, _ = load(f"preset{p}"); inrange(f"preset {p}: nivel razonable (dB)", rmsdb(x) - rmsdb(xs), -4, 4)
 print("\nFALLAS:", fails)

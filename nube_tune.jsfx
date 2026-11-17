@@ -1,8 +1,8 @@
-desc:Nube Tune - afinador automatico (autotune: escalas, velocidad, humanizar, flex, formantes, MIDI)
+desc:Nube Tune - afinador automatico (autotune: escalas, notas dibujadas, velocidad, humanizar, flex, formantes, MIDI)
 //tags: autotune pitch correction tuner vocal formant psola scale midi
 //author: Kev Meneses + Claude (Claude Code)
 //license: GPL-3.0-or-later
-//version: 1.0.0
+//version: 1.1.0
 
 slider1:20<0,400,1>-Velocidad (ms; 0 = robot)
 slider2:0<0,100,1>-Humanizar (%)
@@ -26,6 +26,15 @@ slider19:0<0,2,1{Apagado,Notas tocadas = escala,Nota exacta}>-MIDI
 slider20:0<0,1,1{No,Escuchando}>-Aprender tonalidad
 slider21:0<0,13,1{-,Natural - correccion suave,Pop moderno,Hard tune - efecto robot,Trap melodico,Balada - respeta el vibrato,Solo centrar notas largas,Octava abajo,Octava arriba,Voz de monstruo,Ardilla,Vibrato agregado,Doble afinado (mezcla 50%),Por defecto}>-Cargar preset
 slider22:0<0,1000000,1>-Diagnostico (interno)
+slider23:0<0,1,1{Usar,Ignorar (comparar A/B)}>-Notas dibujadas
+slider24:0<0,1,1{Afinar automatico,Dejar natural}>-Fuera de las notas dibujadas
+slider25:0<0,2000,1>-Notas dibujadas (cantidad, interno)
+slider26:0<0,100000,0.001>-Nota nueva: inicio (s, interno)
+slider27:0<0,100000,0.001>-Nota nueva: fin (s, interno)
+slider28:60<0,127,0.01>-Nota nueva: nota inicial (MIDI, interno)
+slider29:60<0,127,0.01>-Nota nueva: nota final (MIDI, interno)
+slider30:0<0,5,1{-,Agregar nota,Borrar todas,Detectar notas,Deshacer,Borrar voz grabada}>-Comando de notas (interno)
+slider31:0<0,1000000,1>-Ediciones de notas (interno)
 
 in_pin:Entrada L
 in_pin:Entrada R
@@ -49,6 +58,12 @@ NH = 4096; NHM = NH - 1; hIn = 138000; hOut = 142096; hTg = 146192;   // histori
 hitmem = 151000;
 held = 153000; khist = 153200; kprof = 153300;
 inM = 196608; rcor = 229376;              // anillo mono y correlaciones de refine()
+// voz por tiempo del proyecto (cada 10 ms, 21 min): tono MIDI de entrada / salida; -1 = sin voz, 0 = sin grabar
+NPT = 131072; PTR = 100; pIn = 262144; pOut = 393216;
+// notas dibujadas, doble buffer (el audio lee seg_act; la interfaz edita el otro y lo publica):
+// [0] = cantidad, luego por nota: inicio (s), fin (s), nota inicial, nota final (MIDI, con decimales)
+MAXSEG = 2000; SEGA = 524288; SEGB = 532480;
+NUNDO = 16; USZ = 8192; UNDO = 540672; SEGT = 671744;   // deshacer (anillo de copias) y temporal
 
 // ---------------------------------------------------------------- utilidades
 function clamp(x, a, b) ( x < a ? a : x > b ? b : x );
@@ -71,7 +86,8 @@ function sset(i, v)
   i == 15 ? ( slider15 = v; slider_automate(slider15); ) : i == 16 ? ( slider16 = v; slider_automate(slider16); ) :
   i == 17 ? ( slider17 = v; slider_automate(slider17); ) : i == 18 ? ( slider18 = v; slider_automate(slider18); ) :
   i == 19 ? ( slider19 = v; slider_automate(slider19); ) : i == 20 ? ( slider20 = v; slider_automate(slider20); ) :
-  i == 21 ? ( slider21 = v; slider_automate(slider21); );
+  i == 21 ? ( slider21 = v; slider_automate(slider21); ) : i == 23 ? ( slider23 = v; slider_automate(slider23); ) :
+  i == 24 ? ( slider24 = v; slider_automate(slider24); );
 );
 
 // ---------------------------------------------------------------- escalas (bits desde la tonica)
@@ -132,6 +148,8 @@ function update_params() local(fmin, fmax, nl)
   keepform = slider18 == 0;
   midimode = slider19;
   learn = slider20;
+  seg_use = slider23 == 0;
+  seg_nat = slider24 == 1;
   fmin = slider15 == 0 ? 120 : slider15 == 1 ? 85 : slider15 == 2 ? 65 : 40;
   fmax = slider15 == 0 ? 1400 : slider15 == 1 ? 1100 : slider15 == 2 ? 800 : 700;
   nl = floor(srate / fmin);
@@ -172,6 +190,116 @@ function lookf(x, arr) local(fi, i, t, a, b)
   );
 );
 
+// ---------------------------------------------------------------- notas dibujadas (como ReaTune manual / Melodyne)
+// Ordenadas por inicio y sin solaparse. Las edita la interfaz (o el slider de comandos) en una copia que luego
+// se publica cambiando seg_act: el audio nunca ve una lista a medio editar. Las funciones con local() son
+// estaticas en EEL2: el audio usa solo seg_at_a(); todo lo demas es de la interfaz.
+function seg_w() local(w)
+( w = seg_act == SEGA ? SEGB : SEGA; memcpy(w, seg_act, 1 + seg_act[0] * 4); w; );
+function seg_publish(w)
+(
+  seg_act = w;
+  slider25 = w[0]; sliderchange(slider25);
+  slider31 += 1; slider_automate(slider31);      // marca el proyecto como cambiado
+);
+function seg_undo_push() local(d)
+(
+  d = UNDO + (undo_pos % NUNDO) * USZ; memcpy(d, seg_act, 1 + seg_act[0] * 4);
+  undo_pos += 1; undo_n = min(undo_n + 1, NUNDO);
+);
+function seg_undo() local(d, w)
+(
+  undo_n > 0 ? (
+    undo_pos -= 1; undo_n -= 1;
+    d = UNDO + (undo_pos % NUNDO) * USZ;
+    w = seg_act == SEGA ? SEGB : SEGA; memcpy(w, d, 1 + d[0] * 4); seg_publish(w);
+  );
+);
+// quita de la lista todo lo que cae en [t0, t1) (recorta o parte las notas que lo cruzan)
+function seg_cut(w, t0, t1) local(n, i, p, o, k, s0, s1, n0, n1)
+(
+  n = w[0]; k = 0; o = SEGT + 1; i = 0;
+  loop(n,
+    p = w + 1 + i * 4; s0 = p[0]; s1 = p[1]; n0 = p[2]; n1 = p[3];
+    (s1 <= t0 || s0 >= t1) ? ( o[0] = s0; o[1] = s1; o[2] = n0; o[3] = n1; o += 4; k += 1; ) : (
+      s0 < t0 - 0.005 ? ( o[0] = s0; o[1] = t0; o[2] = n0; o[3] = n0 + (n1 - n0) * (t0 - s0) / (s1 - s0); o += 4; k += 1; );
+      s1 > t1 + 0.005 ? ( o[0] = t1; o[1] = s1; o[2] = n0 + (n1 - n0) * (t1 - s0) / (s1 - s0); o[3] = n1; o += 4; k += 1; );
+    );
+    i += 1;
+  );
+  k = min(k, MAXSEG); SEGT[0] = k; memcpy(w, SEGT, 1 + k * 4);
+);
+// agrega una nota (reemplaza lo que hubiera en su tramo); deja su posicion en ins_idx
+function seg_ins(w, t0, t1, n0, n1) local(n, i, p, j)
+(
+  t1 < t0 ? ( j = t0; t0 = t1; t1 = j; j = n0; n0 = n1; n1 = j; );
+  t0 = max(t0, 0); n0 = clamp(n0, 0, 127); n1 = clamp(n1, 0, 127);
+  ins_idx = -1;
+  t1 - t0 >= 0.01 ? (
+    seg_cut(w, t0, t1);
+    n = w[0];
+    n < MAXSEG ? (
+      i = 0; while (i < n && w[1 + i * 4] < t0) ( i += 1; );
+      memcpy(w + 1 + (i + 1) * 4, w + 1 + i * 4, (n - i) * 4);
+      p = w + 1 + i * 4; p[0] = t0; p[1] = t1; p[2] = n0; p[3] = n1;
+      w[0] = n + 1; ins_idx = i;
+    );
+  );
+);
+function seg_del(w, i) local(n)
+(
+  n = w[0];
+  (i >= 0 && i < n) ? ( memcpy(w + 1 + i * 4, w + 1 + (i + 1) * 4, (n - i - 1) * 4); w[0] = n - 1; );
+);
+function seg_clear() local(w) ( seg_undo_push(); w = seg_w(); w[0] = 0; seg_publish(w); );
+function rec_clear() ( memset(pIn, 0, NPT); memset(pOut, 0, NPT); rec_lo = NPT; rec_hi = 0; );
+// nota (con decimales) en el tiempo t del proyecto, o -1000 si no hay nota ahi. Solo la llama el audio.
+function seg_at_a(t) local(b, n, lo, hi, md, p)
+(
+  b = seg_act; n = b[0]; md = -1000;
+  n > 0 ? (
+    lo = 0; hi = n - 1;
+    while (lo < hi) ( md = floor((lo + hi + 1) * 0.5); b[1 + md * 4] <= t ? lo = md : hi = md - 1; );
+    p = b + 1 + lo * 4;
+    md = (p[0] <= t && t < p[1]) ? p[2] + (p[3] - p[2]) * (t - p[0]) / max(p[1] - p[0], 0.000001) : -1000;
+  );
+  md;
+);
+// ---- detectar notas: convierte la voz grabada en notas (una por nota cantada, en la nota permitida mas cercana)
+function dn_snap(v) local(b, d, c, best, bd)
+(
+  b = floor(v + 0.5); best = b; bd = 100; d = -7;
+  loop(15, c = b + d; (bit(emask, pcl(c)) && abs(c - v) < bd) ? ( bd = abs(c - v); best = c; ); d += 1; );
+  best;
+);
+function dn_emit(w, a, b, sum, cnt) local(nn)
+(
+  (b - a >= 4 && cnt > 0) ? ( nn = dn_snap(sum / cnt); seg_ins(w, a / PTR, b / PTR, nn, nn); );
+);
+// slots [s0, s1): una nota cambia cuando la voz se aleja > 0.6 semitonos por 50 ms; huecos de <= 30 ms no cortan
+function detect_notes(s0, s1) local(w, i, v, a, cur, sum, cnt, offs, gap)
+(
+  s0 = clamp(floor(s0), 0, NPT); s1 = clamp(ceil(s1), s0, NPT);
+  seg_undo_push(); w = seg_w(); seg_cut(w, s0 / PTR, s1 / PTR);
+  i = s0; a = -1; gap = 0;
+  while (i < s1) (
+    v = pIn[i];
+    v > 0 ? (
+      a < 0 ? ( a = i; cur = floor(v + 0.5); sum = 0; cnt = 0; offs = 0; );
+      gap = 0;
+      abs(v - cur) > 0.6 ? (
+        offs += 1;
+        offs >= 5 ? ( dn_emit(w, a, i - 4, sum, cnt); a = i - 4; cur = floor(v + 0.5); sum = v; cnt = 1; offs = 0; );
+      ) : ( offs = 0; sum += v; cnt += 1; );
+    ) : (
+      a >= 0 ? ( gap += 1; gap > 3 ? ( dn_emit(w, a, i - gap + 1, sum, cnt); a = -1; ); );
+    );
+    i += 1;
+  );
+  a >= 0 ? dn_emit(w, a, i - gap, sum, cnt);
+  seg_publish(w);
+);
+
 // ---------------------------------------------------------------- correccion (una vez por cuadro)
 function allowed(n, m) ( bit(m, pcl(n)); );
 function nearest(p, m) local(b, d, c, best, bd)
@@ -182,18 +310,28 @@ function nearest(p, m) local(b, d, c, best, bd)
   best < 0 ? b : best;
 );
 
-function correct(voiced, f, rms) local(p, m, q, d, w, tgt, tau, k, po, ramp, vib, i)
+function correct(voiced, f, rms) local(p, m, q, d, w, tgt, tau, k, po, ramp, vib, i, sn)
 (
   voiced ? (
     p = 69 + 12 * log2_(f / a4);
     unv * HOP > 0.08 * srate ? ( sh = 0; held_v = 0; cur_t = -1; vph = 0; );
     unv = 0;
     learn ? ( i = pcl(floor(p + 0.5)); khist[i] += min(rms * 30, 1); );
-    m = learn ? 4095 : (midimode == 1 && held_mask) ? held_mask : emask;
-    q = (midimode == 2 && midi_last >= 0 && !learn) ? midi_last : nearest(p, m);
-    q != cur_t ? ( cur_t = q; held_t = 0; );
-    d = q - p;
-    w = (flex > 0 && !(midimode == 2 && midi_last >= 0)) ? clamp((0.5 - abs(d)) / (flex * 0.5), 0, 1) : 1;
+    sn = (seg_use && a_ft >= 0) ? seg_at_a(a_ft) : -1000;
+    sn > -1000 ? (
+      // nota dibujada: la salida va exactamente a la linea (la linea ya es la nota final: se descuenta transponer)
+      q = sn - transp; cur_t = -1;
+      abs(q - man_q) > 0.5 ? held_t = 0;
+      man_q = q; cor_man = 1;
+      d = q - p; w = 1;
+    ) : (
+      man_q = -100; cor_man = 0;
+      m = learn ? 4095 : (midimode == 1 && held_mask) ? held_mask : emask;
+      q = (midimode == 2 && midi_last >= 0 && !learn) ? midi_last : nearest(p, m);
+      q != cur_t ? ( cur_t = q; held_t = 0; );
+      d = q - p;
+      w = seg_nat ? 0 : (flex > 0 && !(midimode == 2 && midi_last >= 0)) ? clamp((0.5 - abs(d)) / (flex * 0.5), 0, 1) : 1;
+    );
     tgt = d * w;
     tau = retune_s + human * 0.4 * clamp((held_t * HOP / srate - 0.08) / 0.25, 0, 1);
     k = tau < 0.0003 ? 1 : 1 - exp(-HOP / (tau * srate));
@@ -278,7 +416,16 @@ function detect() local(st, j, x, e0, scl, tau, cm, d, best, a0, a1, a2, den, tt
     prev_tau = voiced ? best : 0;
   ) : ( det_ap = 1; prev_tau = 0; );
   det_rms = rms;
+  // tiempo del proyecto de este cuadro (solo reproduciendo): ancla del bloque + muestras desde ahi
+  a_ft = b_play ? b_pp + (st + 0.4 * N2 - b_n0) / srate : -1;
   fo = correct(voiced, fi, rms);
+  a_ft >= 0 ? (
+    a_sl = floor(a_ft * PTR);
+    a_sl < NPT ? (
+      pIn[a_sl] = voiced ? cor_p : -1; pOut[a_sl] = voiced ? cor_o : -1;
+      a_sl < rec_lo ? rec_lo = a_sl; a_sl >= rec_hi ? rec_hi = a_sl + 1;
+    );
+  );
   fcount == 0 ? fc0 = st + 0.4 * N2;
   frIn[fcount & NFM] = fi; frOut[fcount & NFM] = fo;
   fcount += 1;
@@ -430,6 +577,8 @@ nin = 0; late = 0; hw = 0;
 memset(hIn, -1, NH); memset(hOut, -1, NH); memset(hTg, -1, NH);
 held_mask = 0; midi_last = -1;
 PMAX = 0;
+// @init tambien corre al dar play: las notas y la voz grabada se inicializan solo la primera vez
+!seg_ok ? ( seg_ok = 1; SEGA[0] = 0; SEGB[0] = 0; seg_act = SEGA; undo_n = 0; undo_pos = 0; rec_lo = NPT; rec_hi = 0; );
 update_params();
 mix = mix_t; og = og_t;
 last_learn = slider20;
@@ -440,9 +589,19 @@ update_params();
 (last_learn && !slider20) ? ( apply_learn(); update_params(); );
 (!last_learn && slider20) ? ( memset(khist, 0, 12); key_total = 0; );
 last_learn = slider20;
+// comandos de notas (para scripts y pruebas): agregar usa los sliders 26-29
+slider30 > 0 ? (
+  s_c = floor(slider30 + 0.5); slider30 = 0;
+  s_c == 1 ? ( seg_undo_push(); s_w = seg_w(); seg_ins(s_w, slider26, slider27, slider28, slider29); seg_publish(s_w); ) :
+  s_c == 2 ? seg_clear() :
+  s_c == 3 ? ( rec_hi > rec_lo ? detect_notes(rec_lo, rec_hi); ) :
+  s_c == 4 ? seg_undo() :
+  s_c == 5 ? rec_clear();
+);
 
 @block
 upd ? ( upd = 0; update_params(); );
+b_pp = play_position; b_n0 = nin; b_play = play_state & 1;   // 1 = reproduciendo, 5 = grabando
 // MIDI: notas tocadas (se dejan pasar)
 while (midirecv(b_ofs, b_m1, b_m2, b_m3)) (
   b_st = b_m1 & $xF0;
@@ -502,6 +661,29 @@ spl1 = (a_dr + (a_wr - a_dr) * mix) * og;
 
 a_x = max(abs(a_dl), abs(a_dr)); a_x > m_in ? m_in = a_x;
 a_x = max(abs(spl0), abs(spl1)); a_x > m_out ? m_out = a_x;
+
+@serialize
+// notas dibujadas, voz grabada (solo la entrada) y la vista del editor
+s_wr = file_avail(0) < 0;
+s_ver = s_wr ? 1 : 0;
+file_var(0, s_ver);
+s_ver >= 1 ? (
+  s_b = s_wr ? seg_act : (seg_act == SEGA ? SEGB : SEGA);
+  s_n = s_b[0];
+  file_var(0, s_n);
+  s_n = clamp(floor(s_n), 0, MAXSEG);
+  file_mem(0, s_b + 1, s_n * 4);
+  !s_wr ? ( s_b[0] = s_n; seg_act = s_b; undo_n = 0; slider25 = s_n; );
+  s_lo = rec_lo; s_hi = rec_hi;
+  file_var(0, s_lo); file_var(0, s_hi);
+  !s_wr ? (
+    memset(pIn, 0, NPT); memset(pOut, 0, NPT);
+    s_lo = clamp(floor(s_lo), 0, NPT); s_hi = clamp(floor(s_hi), s_lo, NPT);
+    rec_lo = s_hi > s_lo ? s_lo : NPT; rec_hi = s_hi > s_lo ? s_hi : 0;
+  );
+  s_hi > s_lo ? file_mem(0, pIn + s_lo, s_hi - s_lo);
+  file_var(0, emode); file_var(0, tv0); file_var(0, tvs);
+);
 
 @gfx 1000 640
 // ======================================================================= interfaz
@@ -682,8 +864,17 @@ function hint_for(id)
   id == 53 ? strcpy(#hint, "Rango de voz: la nota mas grave que se busca. Mas agudo = menos latencia y menos errores de octava.") :
   id == 54 ? strcpy(#hint, "MIDI: Notas = escala -> las teclas que mantienes son las notas permitidas. Nota exacta -> la voz va a la nota MIDI tocada.") :
   id == 100 ? strcpy(#hint, "Grafica: ambar = la voz que entra, violeta = la que sale afinada. Rueda = zoom | arrastra = mover | doble clic = seguir la voz") :
-  id == 101 ? strcpy(#hint, "Notas: clic en un nombre = activar / quitar esa nota de la escala.") :
+  id == 101 ? strcpy(#hint, "Notas: clic en un nombre = activar / quitar esa nota de la escala. Arrastra = subir / bajar la vista; rueda = zoom.") :
   id == 102 ? strcpy(#hint, "Nota actual: a que nota va la voz. Medidor: ambar = cuanto desafinada entra; violeta = cuanto corrige.") :
+  id == 60 ? strcpy(#hint, "En vivo: los ultimos segundos de la voz que entra (ambar) y la que sale afinada (violeta).") :
+  id == 61 ? strcpy(#hint, "Editar notas: la cancion en el tiempo. Reproduce para ver tu voz y dibuja con el mouse la nota a la que la quieres llevar.") :
+  id == 62 ? strcpy(#hint, "Detectar notas: convierte la voz grabada que se ve en notas (a la escala) que puedes arrastrar arriba / abajo.") :
+  id == 63 ? strcpy(#hint, "Deshacer el ultimo cambio de notas (tambien Cmd+Z / Ctrl+Z con la ventana activa).") :
+  id == 64 ? strcpy(#hint, "Borrar todas las notas dibujadas (se puede deshacer).") :
+  id == 65 ? strcpy(#hint, "Fuera de las notas: afinar = el autotune de siempre (tono y escala). Natural = la voz pasa tal cual; solo se afinan tus notas.") :
+  id == 66 ? strcpy(#hint, "Comparar: escucha la voz sin tus notas dibujadas (A/B). No las borra; clic otra vez para volver a usarlas.") :
+  id == 110 ? strcpy(#hint, "Arrastra = dibujar una nota (Shift = sin ajustar al semitono, Alt = deslizamiento). Clic derecho = menu. Rueda = zoom.") :
+  id == 111 ? strcpy(#hint, "Compases: arrastra para moverte en la cancion. Doble clic = seguir la reproduccion. Rueda = zoom.") :
   strcpy(#hint, "Nube Tune: elige la tonalidad y la escala, y ajusta la Velocidad. Pasa el mouse sobre cualquier cosa para ver que hace.");
 );
 
@@ -725,15 +916,186 @@ function menu_list(sl, n, a, b, c, d) local(r, i)
   r > 0 ? ( sset(sl, r - 1); upd = 1; );
 );
 
+// ---------------------------------------------------------- editor de notas (la cancion en el tiempo)
+function t2x(t) ( gx0 + (t - tv0) / tvs * gw );
+function x2t(x) ( tv0 + (x - gx0) / gw * tvs );
+function snapn(n, fine) ( fine ? floor(n * 100 + 0.5) / 100 : floor(n + 0.5) );
+function seg_hh() ( max(min(dh / vrange * 0.62, 14 * SC), 6 * SC) );
+function flash(str) ( strcpy(#flash, str); flash_t = time_precise(); );
+function seg_label(d, n) local(r, c)
+(
+  r = floor(n + 0.5); c = floor((n - r) * 100 + 0.5);
+  note_str(d, r);
+  c != 0 ? ( sprintf(#slc, " %+d ct", c); strcat(d, #slc); );
+  d;
+);
+// nota bajo el mouse (o -1); hit_part: 0 = cuerpo, 1 = borde izquierdo, 2 = borde derecho
+function seg_hit(x, y) local(b, n, i, p, xa, xb, yy, r, hh)
+(
+  b = seg_act; n = b[0]; r = -1; i = 0; hh = seg_hh(); hit_part = 0;
+  while (i < n && r < 0) (
+    p = b + 1 + i * 4;
+    xa = t2x(p[0]); xb = t2x(p[1]);
+    (x >= xa - 3 * SC && x <= xb + 3 * SC) ? (
+      yy = n2y(p[2] + (p[3] - p[2]) * clamp((x - xa) / max(xb - xa, 1), 0, 1));
+      abs(y - yy) <= hh * 0.5 + 3 * SC ? (
+        r = i;
+        hit_part = xb - xa < 16 * SC ? 0 : x - xa < 6 * SC ? 1 : xb - x < 6 * SC ? 2 : 0;
+      );
+    );
+    i += 1;
+  );
+  r;
+);
+// st: 0 = normal, 1 = elegida, 2 = vista previa, 3 = mouse encima
+function draw_seg(t0, t1, n0, n1, st) local(xa, xb, x0, x1, y0, ya, yb, hh, k, w)
+(
+  xa = t2x(t0); xb = t2x(t1); x0 = max(xa, gx0); x1 = min(xb, gx0 + gw); hh = seg_hh();
+  x1 > x0 ? (
+    n0 == n1 ? (
+      y0 = n2y(n0);
+      (y0 > dy + RUL && y0 < dy + dh) ? (
+        w = max(x1 - x0, 2 * SC);
+        acc(st == 2 ? 0.30 : st == 0 ? 0.42 : 0.6); frect(x0, y0 - hh * 0.5, w, hh, 3 * SC);
+        st == 1 || st == 3 ? gfx_set(1, 1, 1, st == 1 ? 1 : 0.6) : acc(1);
+        gfx_rect(x0, y0 - hh * 0.5, w, hh, 0);
+        st == 1 ? gfx_rect(x0 + 1, y0 - hh * 0.5 + 1, w - 2, hh - 2, 0);
+        (w > 30 * SC && hh >= 9 * SC) ? ( fnt(8); gfx_set(0.97, 0.96, 1, 1); seg_label(#sl, n0); text_l(#sl, x0 + 4 * SC, y0 - hh * 0.5, hh); );
+      );
+    ) : (
+      ya = n2y(n0 + (n1 - n0) * (x0 - xa) / max(xb - xa, 0.001));
+      yb = n2y(n0 + (n1 - n0) * (x1 - xa) / max(xb - xa, 0.001));
+      ((ya > dy + RUL && ya < dy + dh) || (yb > dy + RUL && yb < dy + dh)) ? (
+        st == 1 || st == 3 ? gfx_set(1, 1, 1, st == 1 ? 1 : 0.75) : acc(st == 2 ? 0.6 : 1);
+        k = 0; loop(floor(3 * SC), gfx_line(x0, ya - 1 * SC + k, x1, yb - 1 * SC + k, 1); k += 1; );
+        acc(1); gfx_circle(x0, ya, 3 * SC, 1, 1); gfx_circle(x1, yb, 3 * SC, 1, 1);
+      );
+    );
+  );
+);
+// voz grabada por tiempo del proyecto (una muestra por columna, interpolada entre slots de 10 ms)
+function draw_rec(arr) local(c, t, u, i, f, v0, v1, v, xx, yy, pv, px, py_)
+(
+  c = 0; pv = -1;
+  loop(floor(gw / SC),
+    xx = gx0 + c * SC; t = x2t(xx); u = t * PTR - 0.5; i = floor(u); f = u - i;
+    (i >= 0 && i + 1 < NPT) ? (
+      v0 = arr[i]; v1 = arr[i + 1];
+      v = (v0 > 0 && v1 > 0 && abs(v1 - v0) < 1) ? v0 + (v1 - v0) * f : f < 0.5 ? v0 : v1;
+    ) : v = 0;
+    yy = n2y(v);
+    (v > 0 && pv > 0 && abs(v - pv) < 1.5 && yy > dy + RUL && yy < dy + dh && py_ > dy + RUL && py_ < dy + dh) ? (
+      gfx_line(px, py_, xx, yy, 1); gfx_line(px, py_ + 1, xx, yy + 1, 1);
+    );
+    pv = v; px = xx; py_ = yy; c += 1;
+  );
+);
+// compases (del tempo y el compas del proyecto) o segundos; lab = 1 dibuja los numeros en la regla
+function draw_grid(lab) local(bps, bn, boff, st, b, b1, xx, cnt, pxb, pxbar, every, bar, isbar, s)
+(
+  bps = tempo / 60; bn = ts_num >= 1 ? ts_num : 4;
+  bps > 0 ? (
+    boff = beat_position - play_position * bps;
+    pxb = gw / (tvs * bps); pxbar = pxb * bn;
+    st = pxb >= 6 * SC ? 1 : bn;
+    every = pxbar >= 34 * SC ? 1 : pxbar * 4 >= 34 * SC ? 4 : pxbar * 16 >= 34 * SC ? 16 : 64;
+    b = ceil((boff + tv0 * bps) / st) * st; b1 = boff + (tv0 + tvs) * bps; cnt = 0;
+    while (b <= b1 && cnt < 3000) (
+      xx = t2x((b - boff) / bps);
+      isbar = b - floor(b / bn) * bn == 0; bar = floor(b / bn);
+      lab ? (
+        (isbar && bar - floor(bar / every) * every == 0) ? (
+          fnt(8); gfx_set(0.70, 0.73, 0.80, 1); sprintf(#gl, "%d", bar + 1); text_l(#gl, xx + 3 * SC, dy, RUL);
+          gfx_set(1, 1, 1, 0.25); gfx_line(xx, dy + RUL * 0.4, xx, dy + RUL - 1);
+        );
+      ) : (
+        gfx_set(1, 1, 1, isbar ? (bar - floor(bar / every) * every == 0 ? 0.11 : 0.05) : 0.03);
+        gfx_line(xx, dy + RUL, xx, dy + dh - 1);
+      );
+      b += st; cnt += 1;
+    );
+  ) : (
+    s = ceil(tv0); cnt = 0;
+    while (s <= tv0 + tvs && cnt < 3000) (
+      xx = t2x(s);
+      lab ? ( fnt(8); gfx_set(0.70, 0.73, 0.80, 1); sprintf(#gl, "%d s", s); text_l(#gl, xx + 3 * SC, dy, RUL); )
+          : ( gfx_set(1, 1, 1, 0.06); gfx_line(xx, dy + RUL, xx, dy + dh - 1); );
+      s += tvs > 60 ? 10 : 1; cnt += 1;
+    );
+  );
+);
+function seg_remove(i) local(w) ( seg_undo_push(); w = seg_w(); seg_del(w, i); seg_publish(w); ed_sel = -1; );
+function seg_nudge(i, dn) local(w, p)
+( seg_undo_push(); w = seg_w(); p = w + 1 + i * 4; p[2] = clamp(p[2] + dn, 0, 127); p[3] = clamp(p[3] + dn, 0, 127); seg_publish(w); );
+function detect_range(s0, s1) local(i, c)
+(
+  s0 = clamp(floor(s0), 0, NPT); s1 = clamp(ceil(s1), s0, NPT);
+  c = 0; i = s0; loop(s1 - s0, pIn[i] > 0 ? c += 1; i += 1; );
+  c > 4 ? detect_notes(s0, s1) : flash("No hay voz grabada ahi: reproduce esa parte una vez y vuelve a intentarlo.");
+);
+function ed_press() local(h, p)
+(
+  h = seg_hit(mx, my);
+  ed_mx0 = mx; ed_my0 = my; ed_tm = 0;
+  h >= 0 ? (
+    drag = 1; drag_id = 110;
+    ed_sel = h; ed_mode = 1 + hit_part;
+    p = seg_act + 1 + h * 4; ed_o0 = p[0]; ed_o1 = p[1]; ed_o2 = p[2]; ed_o3 = p[3];
+    ed_a = ed_o0; ed_b = ed_o1; ed_c = ed_o2; ed_d = ed_o3;
+  ) : dbl ? ( follow = 1; tfollow = 1; ed_mode = 0; ) : (
+    drag = 1; drag_id = 110;
+    ed_sel = -1; ed_mode = 4; ed_fine = shift;
+    ed_a = ed_b = max(x2t(mx), 0); ed_c = ed_d = snapn(y2n(my), ed_fine);
+  );
+);
+function ed_drag() local(dn, dt)
+(
+  ed_mode == 1 ? (
+    dn = (ed_my0 - my) / (dh / vrange); dn = shift ? floor(dn * 100 + 0.5) / 100 : floor(dn + 0.5);
+    abs(mx - ed_mx0) > 8 * SC ? ed_tm = 1;
+    dt = ed_tm ? (mx - ed_mx0) / gw * tvs : 0; dt < -ed_o0 ? dt = -ed_o0;
+    ed_a = ed_o0 + dt; ed_b = ed_o1 + dt; ed_c = ed_o2 + dn; ed_d = ed_o3 + dn;
+  ) : ed_mode == 2 ? ( ed_a = clamp(x2t(mx), 0, ed_o1 - 0.02); )
+    : ed_mode == 3 ? ( ed_b = max(x2t(mx), ed_o0 + 0.02); )
+    : ed_mode == 4 ? ( ed_b = max(x2t(mx), 0); ed_d = (mouse_cap & 16) ? snapn(y2n(my), ed_fine) : ed_c; );
+);
+function ed_release() local(w, a, b, c, d)
+(
+  a = min(ed_a, ed_b); b = max(ed_a, ed_b); c = ed_a <= ed_b ? ed_c : ed_d; d = ed_a <= ed_b ? ed_d : ed_c;
+  ed_mode == 4 ? (
+    b - a >= 0.03 ? ( seg_undo_push(); w = seg_w(); seg_ins(w, a, b, c, d); seg_publish(w); ed_sel = ins_idx; );
+  ) : ed_mode >= 1 ? (
+    (a != ed_o0 || b != ed_o1 || c != ed_o2 || d != ed_o3) ? (
+      seg_undo_push(); w = seg_w(); seg_del(w, ed_sel); seg_ins(w, a, b, c, d); seg_publish(w); ed_sel = ins_idx;
+    );
+  );
+  ed_mode = 0;
+);
+function menu_edit() local(r)
+(
+  #m = "Detectar notas en lo visible|Detectar notas en toda la voz grabada|Borrar las notas visibles|Borrar todas las notas|";
+  strcat(#m, undo_n > 0 ? "Deshacer" : "#Deshacer");
+  strcat(#m, "|Borrar la voz grabada (solo la grafica)");
+  gfx_x = mouse_x; gfx_y = mouse_y;
+  r = gfx_showmenu(#m);
+  r == 1 ? detect_range(tv0 * PTR, (tv0 + tvs) * PTR) :
+  r == 2 ? detect_range(rec_lo, rec_hi) :
+  r == 3 ? ( seg_undo_push(); _w = seg_w(); seg_cut(_w, tv0, tv0 + tvs); seg_publish(_w); ed_sel = -1; ) :
+  r == 4 ? ( seg_clear(); ed_sel = -1; ) :
+  r == 5 ? ( seg_undo(); ed_sel = -1; ) :
+  r == 6 ? rec_clear();
+);
+
 // ======================================================================= layout
-TOPH = 44 * SC; PANH = 178 * SC; FOOTH = 26 * SC;
-dy = TOPH + 10 * SC;
-dh = WH - TOPH - PANH - FOOTH - 20 * SC; dh < 170 * SC ? dh = 170 * SC;
-RW = 236 * SC; rx0 = WW - 14 * SC - RW;
+TOPH = 44 * SC; PANH = 178 * SC; FOOTH = 26 * SC; TBH = 28 * SC; RUL = 18 * SC;
+dy = TOPH + TBH + 10 * SC;
+dh = WH - TOPH - TBH - PANH - FOOTH - 20 * SC; dh < 170 * SC ? dh = 170 * SC;
+RW = emode ? 0 : 236 * SC; rx0 = WW - 14 * SC - RW;      // editando notas la grafica usa todo el ancho
 lx0 = 14 * SC; LW = 40 * SC;
-gx0 = lx0 + LW; gw = rx0 - 12 * SC - gx0;
+gx0 = lx0 + LW; gw = rx0 - (emode ? 0 : 12 * SC) - gx0;
 py = dy + dh + 10 * SC;
 vrange == 0 ? ( vrange = 14; vcen = 57; follow = 1; );
+tvs <= 0 ? ( tvs = 8; tv0 = 0; tfollow = 1; ed_sel = -1; );
 function n2y(n) ( dy + dh * 0.5 - (n - vcen) / vrange * dh );
 function y2n(y) ( vcen - (y - dy - dh * 0.5) / dh * vrange );
 fps = srate / HOP;
@@ -751,7 +1113,16 @@ lb && !last_lb ? (
     dbl ? ctl_default(hover_id) : ( drag = 1; drag_id = hover_id; drag_my = my; drag_n = ctl_get(hover_id); );
   ) : hover_id == 100 ? (
     dbl ? ( follow = 1; ) : ( drag = 1; drag_id = 100; drag_my = my; drag_v = vcen; );
-  ) : hover_id == 101 ? toggle_pc(pcl(floor(y2n(my) + 0.5)))
+  ) : hover_id == 101 ? ( drag = 1; drag_id = 101; drag_my = my; drag_v = vcen; drag_mv = 0; )
+    : hover_id == 110 ? ed_press()
+    : hover_id == 111 ? ( dbl ? tfollow = 1 : ( drag = 1; drag_id = 111; drag_mx = mx; drag_t = tv0; ); )
+    : hover_id == 60 ? emode = 0
+    : hover_id == 61 ? emode = 1
+    : hover_id == 62 ? detect_range(tv0 * PTR, (tv0 + tvs) * PTR)
+    : hover_id == 63 ? ( seg_undo(); ed_sel = -1; )
+    : hover_id == 64 ? ( seg_clear(); ed_sel = -1; )
+    : hover_id == 65 ? ( sset(24, slider24 ? 0 : 1); upd = 1; )
+    : hover_id == 66 ? ( sset(23, slider23 ? 0 : 1); upd = 1; )
     : (hover_id >= 20 && hover_id <= 31) ? toggle_pc(hover_id - 20)
     : hover_id == 40 ? ( sset(18, slider18 ? 0 : 1); upd = 1; )
     : hover_id == 41 ? ( slider20 ? ( sset(20, 0); apply_learn(); last_learn = 0; ) : ( sset(20, 1); memset(khist, 0, 12); last_learn = 1; ); upd = 1; )
@@ -765,17 +1136,48 @@ lb && !last_lb ? (
 lb && drag ? (
   _k = shift ? 0.1 : 1;
   (drag_id >= 1 && drag_id <= 13) ? ctl_set(drag_id, drag_n + (drag_my - my) / (220 * SC) * _k) :
-  drag_id == 100 ? ( follow = 0; vcen = clamp(drag_v + (my - drag_my) / dh * vrange, 20, 110); );
+  drag_id == 100 ? ( follow = 0; vcen = clamp(drag_v + (my - drag_my) / dh * vrange, 20, 110); ) :
+  drag_id == 101 ? (
+    abs(my - drag_my) > 3 * SC ? drag_mv = 1;
+    drag_mv ? ( follow = 0; vcen = clamp(drag_v + (my - drag_my) / dh * vrange, 20, 110); );
+  ) :
+  drag_id == 111 ? ( tfollow = 0; tv0 = max(drag_t - (mx - drag_mx) / gw * tvs, 0); ) :
+  drag_id == 110 ? ed_drag();
+);
+(!lb && last_lb && drag) ? (
+  (drag_id == 101 && !drag_mv) ? toggle_pc(pcl(floor(y2n(drag_my) + 0.5)));
+  drag_id == 110 ? ed_release();
 );
 !lb ? drag = 0;
 
-rbtn && !last_rb ? ( (hover_id == 100 || hover_id == 102) ? menu_presets(); );
+rbtn && !last_rb ? (
+  (hover_id == 100 || hover_id == 102) ? menu_presets() :
+  hover_id == 110 ? ( _h = seg_hit(mx, my); _h >= 0 ? seg_remove(_h) : menu_edit(); );
+);
+// teclado (editando notas): borrar, flechas = semitono, deshacer
+_ch = gfx_getchar();
+while (_ch > 0) (
+  emode ? (
+    (_ch == 26 || ((_ch == 'z' || _ch == 'Z') && (mouse_cap & 4))) ? ( seg_undo(); ed_sel = -1; ) :
+    ((_ch == 8 || _ch == 6579564) && ed_sel >= 0 && ed_sel < seg_act[0]) ? seg_remove(ed_sel) :
+    ((_ch == 30064 || _ch == 1685026670) && ed_sel >= 0 && ed_sel < seg_act[0]) ? seg_nudge(ed_sel, _ch == 30064 ? 1 : -1);
+  );
+  _ch = gfx_getchar();
+);
 
 mouse_wheel != 0 ? (
   _w = mouse_wheel / 120;
   (hover_id >= 1 && hover_id <= 13) ? ctl_set(hover_id, ctl_get(hover_id) + _w * (shift ? 0.002 : 0.012)) :
-  (hover_id == 100 || hover_id == 101) ? vrange = clamp(vrange * (_w > 0 ? 0.85 : 1 / 0.85), 5, 48);
+  (hover_id == 100 || hover_id == 101 || ((hover_id == 110 || hover_id == 111) && (mouse_cap & 4))) ?
+    vrange = clamp(vrange * (_w > 0 ? 0.85 : 1 / 0.85), 5, 48) :
+  (hover_id == 110 || hover_id == 111) ? (
+    _tm = x2t(mx); tvs = clamp(tvs * (0.85 ^ _w), 0.5, 600); tv0 = max(_tm - (mx - gx0) / gw * tvs, 0);
+  );
   mouse_wheel = 0;
+);
+mouse_hwheel != 0 ? (
+  (hover_id == 110 || hover_id == 111) ? ( tv0 = max(tv0 + mouse_hwheel / 120 * tvs * 0.08, 0); tfollow = 0; );
+  mouse_hwheel = 0;
 );
 last_lb = lb; last_rb = rbtn;
 
@@ -812,7 +1214,7 @@ loop(_nhi - _nlo + 1,
   _yb > _ya ? (
     _c = pcl(_n); _ok = bit(emask, _c); _blk = _c == 1 || _c == 3 || _c == 6 || _c == 8 || _c == 10;
     _ok ? ( gfx_set(1, 1, 1, 0.035); gfx_rect(gx0, _ya, gw, _yb - _ya, 1); );
-    (_n == cur_t && hTg[(hw - 1) & NHM] >= 0) ? ( acc(0.10); gfx_rect(gx0, _ya, gw, _yb - _ya, 1); );
+    (!emode && _n == cur_t && hTg[(hw - 1) & NHM] >= 0) ? ( acc(0.10); gfx_rect(gx0, _ya, gw, _yb - _ya, 1); );
     gfx_set(1, 1, 1, _c == 0 ? 0.10 : 0.035); gfx_line(gx0, _y1, gx0 + gw - 1, _y1);
     // tira de nombres (como teclas de piano)
     _blk ? gfx_set(0.11, 0.12, 0.15, 1) : gfx_set(0.16, 0.17, 0.21, 1);
@@ -826,11 +1228,7 @@ loop(_nhi - _nlo + 1,
   _n += 1;
 );
 hit_add(lx0, dy, LW, dh, 101);
-// segundos
-_ncol = floor(gw / SC); _span = 6;
-_spc = _span * fps / _ncol;
-_s = 1; loop(_span - 1, _xx = gx0 + gw - _s * fps / _spc * SC; gfx_set(1, 1, 1, 0.04); gfx_line(_xx, dy, _xx, dy + dh - 1); _s += 1; );
-// lineas: entrada y salida
+// lineas de la vista en vivo: entrada y salida
 function draw_track(arr, thick) local(c, j, v, xx, yy, pv, px, py_)
 (
   c = 0; pv = -1;
@@ -848,17 +1246,81 @@ function draw_track(arr, thick) local(c, j, v, xx, yy, pv, px, py_)
     c += 1;
   );
 );
-acc(1); draw_track(hOut, 1);
-inc(0.9); draw_track(hIn, 0);
-// leyenda
-fnt(4); _xx = gx0 + 10 * SC;
-inc(1); text_l("ENTRADA", _xx, dy + 6 * SC, 14 * SC); gfx_measurestr("ENTRADA", _tw, _th); _xx += _tw + 14 * SC;
-acc(1); text_l("SALIDA AFINADA", _xx, dy + 6 * SC, 14 * SC);
-!follow ? ( gfx_set(0.62, 0.65, 0.72, 1); text_r("doble clic = seguir la voz", gx0, dy + 6 * SC, gw - 10 * SC, 14 * SC); );
-(hover_id == 100 || (drag && drag_id == 100)) ? ( gfx_set(1, 1, 1, 0.18); gfx_rect(gx0, dy, gw, dh, 0); );
-hit_add(gx0, dy, gw, dh, 100);
+emode ? (
+  // ---- editor: la cancion en el tiempo
+  _pp = play_position; _ps = play_state;
+  (tfollow && (_ps & 1) && !drag) ? ( (_pp > tv0 + tvs * 0.92 || _pp < tv0) ? tv0 = max(_pp - tvs * 0.08, 0); );
+  draw_grid(0);
+  acc(0.5); draw_rec(pOut);
+  inc(0.95); draw_rec(pIn);
+  _hv = (hover_id == 110 && !drag) ? seg_hit(mx, my) : -1;
+  _b = seg_act; _i = 0;
+  loop(_b[0],
+    _p = _b + 1 + _i * 4;
+    (_p[1] > tv0 && _p[0] < tv0 + tvs && !(drag && drag_id == 110 && ed_mode >= 1 && ed_mode <= 3 && _i == ed_sel)) ?
+      draw_seg(_p[0], _p[1], _p[2], _p[3], _i == ed_sel ? 1 : _i == _hv ? 3 : 0);
+    _i += 1;
+  );
+  (drag && drag_id == 110 && ed_mode >= 1) ? (
+    ed_a <= ed_b ? draw_seg(ed_a, ed_b, ed_c, ed_d, ed_mode == 4 ? 2 : 1) : draw_seg(ed_b, ed_a, ed_d, ed_c, 2);
+  );
+  (_pp >= tv0 && _pp <= tv0 + tvs) ? ( gfx_set(1, 1, 1, (_ps & 1) ? 0.8 : 0.35); _xx = t2x(_pp); gfx_line(_xx, dy, _xx, dy + dh - 1); );
+  // regla de compases
+  gfx_set(0.115, 0.125, 0.16, 1); gfx_rect(gx0, dy, gw, RUL, 1);
+  draw_grid(1);
+  (_pp >= tv0 && _pp <= tv0 + tvs) ? ( gfx_set(1, 1, 1, 0.9); _xx = t2x(_pp); gfx_triangle(_xx - 5 * SC, dy, _xx + 5 * SC, dy, _xx, dy + 7 * SC); );
+  !tfollow ? ( fnt(8); gfx_set(0.62, 0.65, 0.72, 1); text_r("doble clic = seguir la reproduccion", gx0, dy, gw - 8 * SC, RUL); );
+  // leyenda abajo
+  fnt(4); _xx = gx0 + 10 * SC; _yy = dy + dh - 20 * SC;
+  inc(1); text_l("TU VOZ", _xx, _yy, 14 * SC); gfx_measurestr("TU VOZ", _tw, _th); _xx += _tw + 14 * SC;
+  acc(1); text_l("SALIDA", _xx, _yy, 14 * SC); gfx_measurestr("SALIDA", _tw, _th); _xx += _tw + 14 * SC;
+  acc(0.42); frect(_xx, _yy + 3 * SC, 18 * SC, 8 * SC, 2 * SC); acc(1); gfx_rect(_xx, _yy + 3 * SC, 18 * SC, 8 * SC, 0);
+  text_l(slider23 ? "NOTAS DIBUJADAS (IGNORADAS)" : "NOTAS DIBUJADAS", _xx + 24 * SC, _yy, 14 * SC);
+  (rec_hi <= rec_lo && seg_act[0] == 0) ? (
+    fnt(1); gfx_set(0.80, 0.82, 0.88, 1);
+    text_c("Reproduce la cancion: aqui aparece tu voz (ambar).", gx0, dy + dh * 0.5 - 22 * SC, gw, 20 * SC);
+    gfx_set(0.58, 0.61, 0.68, 1);
+    text_c("Luego arrastra para dibujar la nota a la que la quieres llevar, o usa Detectar notas.", gx0, dy + dh * 0.5, gw, 20 * SC);
+  );
+  hit_add(gx0, dy + RUL, gw, dh - RUL, 110);
+  hit_add(gx0, dy, gw, RUL, 111);
+) : (
+  // ---- en vivo: ultimos segundos
+  _ncol = floor(gw / SC); _span = 6;
+  _spc = _span * fps / _ncol;
+  _s = 1; loop(_span - 1, _xx = gx0 + gw - _s * fps / _spc * SC; gfx_set(1, 1, 1, 0.04); gfx_line(_xx, dy, _xx, dy + dh - 1); _s += 1; );
+  acc(1); draw_track(hOut, 1);
+  inc(0.9); draw_track(hIn, 0);
+  fnt(4); _xx = gx0 + 10 * SC;
+  inc(1); text_l("ENTRADA", _xx, dy + 6 * SC, 14 * SC); gfx_measurestr("ENTRADA", _tw, _th); _xx += _tw + 14 * SC;
+  acc(1); text_l("SALIDA AFINADA", _xx, dy + 6 * SC, 14 * SC);
+  !follow ? ( gfx_set(0.62, 0.65, 0.72, 1); text_r("doble clic = seguir la voz", gx0, dy + 6 * SC, gw - 10 * SC, 14 * SC); );
+  (hover_id == 100 || (drag && drag_id == 100)) ? ( gfx_set(1, 1, 1, 0.18); gfx_rect(gx0, dy, gw, dh, 0); );
+  hit_add(gx0, dy, gw, dh, 100);
+);
 
-// ---- panel derecho: nota, medidor y secciones
+// ---- barra de modo (se dibuja despues de la grafica: tapa lo que se salga por arriba)
+gfx_set(0.075, 0.082, 0.105, 1); gfx_rect(0, TOPH, WW, dy - TOPH, 1);
+_ty = TOPH + 6 * SC; _th2 = 24 * SC; _x = lx0;
+button(60, _x, _ty, 86 * SC, _th2, "En vivo", !emode); _x += 90 * SC;
+button(61, _x, _ty, 116 * SC, _th2, "Editar notas", emode); _x += 128 * SC;
+emode ? (
+  button(62, _x, _ty, 118 * SC, _th2, "Detectar notas", 0); _x += 122 * SC;
+  button(63, _x, _ty, 84 * SC, _th2, "Deshacer", 0); _x += 88 * SC;
+  button(64, _x, _ty, 104 * SC, _th2, "Borrar todas", 0); _x += 116 * SC;
+  _x + 168 * SC < WW ? ( button(65, _x, _ty, 168 * SC, _th2, slider24 ? "Fuera de notas: natural" : "Fuera de notas: afinar", 0); _x += 172 * SC; );
+  _x + 150 * SC < WW ? button(66, _x, _ty, min(150 * SC, WW - 14 * SC - _x), _th2, "Comparar sin notas", slider23);
+) : (
+  seg_act[0] > 0 ? (
+    fnt(2); slider23 ? gfx_set(0.62, 0.65, 0.72, 1) : acc(1);
+    sprintf(#s, slider23 ? "%d notas dibujadas (ignoradas)" : "%d notas dibujadas: se aplican al reproducir", seg_act[0]);
+    seg_act[0] == 1 ? strcpy(#s, slider23 ? "1 nota dibujada (ignorada)" : "1 nota dibujada: se aplica al reproducir");
+    text_r(#s, _x, _ty, WW - 14 * SC - _x, _th2);
+  );
+);
+
+// ---- panel derecho: nota, medidor y secciones (solo en vivo)
+!emode ? (
 panel_bg(); gfx_rect(rx0, dy, RW, dh, 1);
 _lastv = hTg[(hw - 1) & NHM] >= 0;
 _lastv ? ( d_note = hTg[(hw - 1) & NHM]; d_age = 0; ) : ( d_age += 1; );
@@ -916,6 +1378,7 @@ _sy + 150 * SC < dy + dh ? (
   sprintf(#s, "%d %%", slider16); knob(12, _kx, _ky, _kr, "Sensibilidad", #s, ctl_get(12), 0, 1); _kx += _ks;
   sprintf(#s, "%d dB", slider17); knob(13, _kx, _ky, _kr, "Puerta", #s, ctl_get(13), 0, 1); _kx += _ks;
   sprintf(#s, "%.1f Hz", slider6); knob(6, _kx, _ky, _kr, "La (A4)", #s, ctl_get(6), 1, 1);
+);
 );
 
 // ---- panel inferior
@@ -977,8 +1440,21 @@ sprintf(#s, "%+.1f dB", slider11); knob(11, _kx, _ky, _kr, "Salida", abs(slider1
 
 // ---- pie: ayuda contextual
 hint_for(hover_id);
+emode && hover_id == 110 ? (
+  (drag && drag_id == 110 && ed_mode >= 1) ? (
+    _a = min(ed_a, ed_b); _bb = max(ed_a, ed_b);
+    seg_label(#h1, ed_a <= ed_b ? ed_c : ed_d);
+    (ed_c != ed_d) ? ( seg_label(#h2, ed_a <= ed_b ? ed_d : ed_c); strcat(#h1, " a "); strcat(#h1, #h2); );
+    sprintf(#hint, "%s   %.2f - %.2f s (%.2f s)", #h1, _a, _bb, _bb - _a);
+  ) : (_hv >= 0) ? (
+    _p = seg_act + 1 + _hv * 4; seg_label(#h1, _p[2]);
+    _p[2] != _p[3] ? ( seg_label(#h2, _p[3]); strcat(#h1, " a "); strcat(#h1, #h2); );
+    sprintf(#hint, "%s  %.2f - %.2f s   arrastra = mover (Shift = fino), bordes = alargar, clic derecho = borrar, flechas = semitono", #h1, _p[0], _p[1]);
+  );
+);
 gfx_set(0.06, 0.065, 0.085, 1); gfx_rect(0, WH - FOOTH, WW, FOOTH, 1);
-fnt(2); gfx_set(0.70, 0.73, 0.80, 1); text_l(#hint, 12 * SC, WH - FOOTH, FOOTH);
+fnt(2); gfx_set(0.70, 0.73, 0.80, 1);
+time_precise() - flash_t < 3.5 ? ( inc(1); text_l(#flash, 12 * SC, WH - FOOTH, FOOTH); ) : text_l(#hint, 12 * SC, WH - FOOTH, FOOTH);
 slider20 ? (
   acc(1);
   key_total > 0 ? sprintf(#s, "ESCUCHANDO: %s %s", pc_name(key_best), key_minor ? "menor" : "mayor") : strcpy(#s, "ESCUCHANDO...");

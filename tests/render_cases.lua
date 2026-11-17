@@ -13,7 +13,9 @@ if only == "" then only = nil end
 
 -- slider N = parámetro N-1 (todos lineales). Base: velocidad 0 (corrección instantánea)
 local function P(t) local r = {[1] = 0} for k, v in pairs(t or {}) do r[k] = v end return r end
--- caso: {nombre, señal, parámetros, opciones}  opciones: sr, midi = {{nota, t0, t1}, ...}, learn = true
+-- caso: {nombre, señal, parámetros, opciones}  opciones: sr, midi = {{nota, t0, t1}, ...}, learn = true,
+--   segs = {{t0, t1, nota0, nota1}, ...} (notas dibujadas), prerender = true (renderiza una vez antes: graba la voz),
+--   cmd = n (comando de notas después del prerender: 3 = detectar), reload = true (guarda y reabre el proyecto)
 local CASES = {
   {"sine430",        "sine430.wav",  P{}},
   {"v430",           "vowel430.wav", P{}},
@@ -55,7 +57,16 @@ local CASES = {
   {"sr44",           "vowel430_44k.wav", P{}, {sr = 44100}},
   {"sr96",           "vowel430_96k.wav", P{}, {sr = 96000}},
   {"learn_em",       "melody_em.wav", P{[20] = 1}, {learn = true}},
+  -- notas dibujadas (la línea es la nota final de la salida)
+  {"seg_line",       "vowel213.wav", P{}, {segs = {{1.0, 2.0, 60, 60}}}},
+  {"seg_glide",      "vowel213.wav", P{}, {segs = {{1.0, 2.0, 57, 64}}}},
+  {"seg_nat",        "vowel213.wav", P{[24] = 1}, {segs = {{1.0, 2.0, 57, 57}}}},
+  {"seg_ignore",     "vowel213.wav", P{[23] = 1}, {segs = {{1.0, 2.0, 60, 60}}}},
+  {"seg_tr12",       "vowel213.wav", P{[5] = 12}, {segs = {{1.0, 2.0, 60, 60}}}},
+  {"seg_cents",      "vowel213.wav", P{}, {segs = {{1.0, 2.0, 59.5, 59.5}, {1.5, 2.5, 61, 61}}}},   -- la 2a recorta la 1a
+  {"seg_detect",     "vowel213.wav", P{[24] = 1}, {prerender = true, cmd = 3}},
   {"voz_seca",       "voz.wav",      P{[10] = 0}},
+  {"seg_detect_voz", "voz.wav",      P{[24] = 1}, {prerender = true, cmd = 3}},
   {"voz_hard",       "voz.wav",      P{[21] = 3}},
   {"voz_natural",    "voz.wav",      P{[21] = 1}},
   {"voz_pop",        "voz.wav",      P{[21] = 2}},
@@ -63,6 +74,7 @@ local CASES = {
   {"voz_trm12",      "voz.wav",      P{[21] = 7}},
 }
 for p = 4, 13 do if p ~= 7 and p ~= 8 then CASES[#CASES + 1] = {"preset" .. p, "voz.wav", P{[21] = p}} end end
+CASES[#CASES + 1] = {"seg_reload", "vowel213.wav", P{}, {segs = {{1.0, 2.0, 52, 52}}, reload = true}}   -- al final: reabre el proyecto
 
 local PREV = reaper.EnumProjects(-1)
 reaper.Main_OnCommand(40859, 0) -- nueva pestaña
@@ -104,16 +116,30 @@ for _, c in ipairs(CASES) do
       reaper.SetTrackSendInfo_Value(mtr, 0, snd, "I_SRCCHAN", -1)
       reaper.SetMediaTrackInfo_Value(mtr, "B_MAINSEND", 0)
     end
-    local file = OUT .. "/" .. name .. ".wav"
-    os.remove(file)
-    reaper.GetSetProjectInfo(0, "RENDER_SETTINGS", 0, true)
-    reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 1, true)
-    reaper.GetSetProjectInfo(0, "RENDER_SRATE", sr, true)
-    reaper.GetSetProjectInfo(0, "RENDER_CHANNELS", 2, true)
-    reaper.GetSetProjectInfo(0, "RENDER_TAILFLAG", 0, true)
-    reaper.GetSetProjectInfo_String(0, "RENDER_FILE", OUT, true)
-    reaper.GetSetProjectInfo_String(0, "RENDER_PATTERN", name, true)
-    reaper.Main_OnCommand(42230, 0)
+    for _, sg in ipairs(opt.segs or {}) do
+      for k = 1, 4 do reaper.TrackFX_SetParam(tr, fx, 25 + k - 1, sg[k]) end
+      reaper.TrackFX_SetParam(tr, fx, 29, 1)
+    end
+    local function render(nm)
+      local file = OUT .. "/" .. nm .. ".wav"
+      os.remove(file)
+      reaper.GetSetProjectInfo(0, "RENDER_SETTINGS", 0, true)
+      reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 1, true)
+      reaper.GetSetProjectInfo(0, "RENDER_SRATE", sr, true)
+      reaper.GetSetProjectInfo(0, "RENDER_CHANNELS", 2, true)
+      reaper.GetSetProjectInfo(0, "RENDER_TAILFLAG", 0, true)
+      reaper.GetSetProjectInfo_String(0, "RENDER_FILE", OUT, true)
+      reaper.GetSetProjectInfo_String(0, "RENDER_PATTERN", nm, true)
+      reaper.Main_OnCommand(42230, 0)
+    end
+    if opt.prerender then render("_pre_" .. name) end
+    if opt.cmd then reaper.TrackFX_SetParam(tr, fx, 29, opt.cmd) end
+    if opt.reload then
+      reaper.Main_SaveProjectEx(0, OUT .. "/_tmp_reload.rpp", 0)
+      reaper.Main_openProject("noprompt:" .. OUT .. "/_tmp_reload.rpp")
+      tr = reaper.GetTrack(0, 0); item = reaper.GetTrackMediaItem(tr, 0); take = reaper.GetActiveTake(item); fx = 0
+    end
+    render(name)
     local extra = ""
     if opt.learn then
       reaper.TrackFX_SetParam(tr, fx, LEARN - 1, 0)
@@ -122,6 +148,8 @@ for _, c in ipairs(CASES) do
     end
     local vals = {}
     for _, k in ipairs({1, 2, 3, 4, 5, 10, 13, 18}) do local _, v = reaper.TrackFX_GetFormattedParamValue(tr, fx, k - 1, ""); vals[#vals + 1] = v end
+    local _, nseg = reaper.TrackFX_GetFormattedParamValue(tr, fx, 24, "")
+    extra = extra .. " | notas=" .. nseg
     log("caso", name, table.concat(vals, " | ") .. " | diag=" .. math.floor(reaper.TrackFX_GetParam(tr, fx, DIAG - 1)) .. extra)
   end
 end
