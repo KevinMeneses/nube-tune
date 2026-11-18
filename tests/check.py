@@ -206,7 +206,7 @@ if (D / "voz_seca.wav").exists():
     inrange("voz: detectar notas (cantidad en 30 s)", nv, 20, 200)
     inrange("voz: notas detectadas = afinada (ct)", np.median(dev(F[both])), 0, 3)
     scalar("voz: notas detectadas, nivel (dB)", rmsdb(x) - rmsdb(xs), 0, 1.0)
-    for p in (4, 5, 6, 9, 10, 11, 12, 13):
+    for p in [4, 5, 6] + list(range(9, 20)) + [24, 25, 26]:
         x, _ = load(f"preset{p}"); inrange(f"preset {p}: nivel razonable (dB)", rmsdb(x) - rmsdb(xs), -4, 4)
 print("\nFALLAS:", fails)
 sys.exit(1 if fails else 0)

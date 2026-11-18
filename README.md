@@ -11,7 +11,7 @@ Melodyne-style editor: draw the note you want on the song's timeline, move it, s
 recorded voice and drag them), retune speed from robot (0 ms) to natural,
 humanize, flex-tune, formant-preserving pitch shifting (pitch-synchronous PSOLA) with a separate formant control,
 transpose ±24 semitones, added vibrato, A4 reference, MIDI target notes (held notes = scale, or exact note), key
-detection, live piano-roll pitch graph, 13 presets. ~3 % CPU, 31 ms latency (compensated by REAPER).
+detection, live piano-roll pitch graph, 26 presets. ~3 % CPU, 31 ms latency (compensated by REAPER).
 
 **Install** — with [ReaPack](https://reapack.com): *Extensions → ReaPack → Import repositories*, paste
 `https://github.com/KevinMeneses/nube-plugins/raw/main/index.xml`, then install **Nube Tune**. Or copy `nube_tune.jsfx`
@@ -66,7 +66,7 @@ Nube Delay, Nube De-Ess, Nube Limit, Nube Gate, Nube Synth y Nube Sampler.
 - **Interfaz**: gráfica tipo rollo de piano (ámbar = entra, violeta = sale afinada; rueda = zoom, arrastrar = mover,
   doble clic = seguir la voz), nota actual grande con medidor de cents (desafinación y corrección), teclado de la
   escala, medidores, ayuda de cada control en el pie, latencia.
-- **13 presets** (no cambian la tonalidad): natural, pop, hard tune, trap melódico, balada, solo centrar notas largas,
+- **26 presets** (no cambian la tonalidad): natural, pop, hard tune, trap melódico, balada, solo centrar notas largas,
   octava abajo / arriba, monstruo, ardilla, vibrato agregado, doble afinado (mezcla 50 %), por defecto.
 - Latencia: 31 ms (tenor), 22 ms (soprano), 40 ms (barítono), REAPER la compensa. CPU: ~2.9 % de un núcleo por
   instancia (3.2 % en el peor caso).

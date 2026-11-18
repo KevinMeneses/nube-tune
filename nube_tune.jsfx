@@ -2,7 +2,7 @@ desc:Nube Tune - afinador automatico (autotune: escalas, notas dibujadas, veloci
 //tags: autotune pitch correction tuner vocal formant psola scale midi
 //author: Kev Meneses + Claude (Claude Code)
 //license: GPL-3.0-or-later
-//version: 1.1.0
+//version: 1.2.0
 
 slider1:20<0,400,1>-Velocidad (ms; 0 = robot)
 slider2:0<0,100,1>-Humanizar (%)
@@ -24,7 +24,7 @@ slider17:-50<-80,-20,1>-Puerta (dB)
 slider18:0<0,1,1{Preservar,Siguen el tono}>-Formantes al transponer
 slider19:0<0,2,1{Apagado,Notas tocadas = escala,Nota exacta}>-MIDI
 slider20:0<0,1,1{No,Escuchando}>-Aprender tonalidad
-slider21:0<0,13,1{-,Natural - correccion suave,Pop moderno,Hard tune - efecto robot,Trap melodico,Balada - respeta el vibrato,Solo centrar notas largas,Octava abajo,Octava arriba,Voz de monstruo,Ardilla,Vibrato agregado,Doble afinado (mezcla 50%),Por defecto}>-Cargar preset
+slider21:0<0,26,1{-,Natural - correccion suave,Pop moderno,Hard tune - efecto robot,Trap melodico,Balada - respeta el vibrato,Solo centrar notas largas,Octava abajo,Octava arriba,Voz de monstruo,Ardilla,Vibrato agregado,Doble afinado (mezcla 50%),R&B suave (flex alto),Drill / UK (rapido con humano),Urbano latino / reggaeton,Hard tune con vibrato,Coros: afinar sin que se note,Robot mezclado (30%),Armonia: quinta abajo (pista duplicada),Armonia: cuarta arriba (pista duplicada),Voz femenina a masculina,Voz masculina a femenina,Formantes: voz mas grande (mismo tono),Formantes: voz mas chica (mismo tono),Instrumento (afinacion firme),Por defecto}>-Cargar preset
 slider22:0<0,1000000,1>-Diagnostico (interno)
 slider23:0<0,1,1{Usar,Ignorar (comparar A/B)}>-Notas dibujadas
 slider24:0<0,1,1{Afinar automatico,Dejar natural}>-Fuera de las notas dibujadas
@@ -529,7 +529,7 @@ function apply_learn()
 );
 
 // ---------------------------------------------------------------- presets
-NPRESETS = 13;
+NPRESETS = 26;
 function preset_name(n)
 (
   n == 1 ? "Natural - correccion suave" :
@@ -544,7 +544,20 @@ function preset_name(n)
   n == 10 ? "Ardilla" :
   n == 11 ? "Vibrato agregado" :
   n == 12 ? "Doble afinado (mezcla 50%)" :
-  n == 13 ? "Por defecto" : "";
+  n == 13 ? "R&B suave (flex alto)" :
+  n == 14 ? "Drill / UK (rapido con humano)" :
+  n == 15 ? "Urbano latino / reggaeton" :
+  n == 16 ? "Hard tune con vibrato" :
+  n == 17 ? "Coros: afinar sin que se note" :
+  n == 18 ? "Robot mezclado (30%)" :
+  n == 19 ? "Armonia: quinta abajo (pista duplicada)" :
+  n == 20 ? "Armonia: cuarta arriba (pista duplicada)" :
+  n == 21 ? "Voz femenina a masculina" :
+  n == 22 ? "Voz masculina a femenina" :
+  n == 23 ? "Formantes: voz mas grande (mismo tono)" :
+  n == 24 ? "Formantes: voz mas chica (mismo tono)" :
+  n == 25 ? "Instrumento (afinacion firme)" :
+  n == 26 ? "Por defecto" : "";
 );
 // pr(velocidad, humanizar, flex, formantes, transponer, mezcla, formantes siguen el tono)
 function pr(v, h, fl, fo, tr, mx, kf)
@@ -566,6 +579,19 @@ function load_preset(n)
   n == 10 ? pr(20, 0, 0, 0, 12, 100, 1) :
   n == 11 ? ( pr(10, 0, 0, 0, 0, 100, 0); sset(7, 40); sset(8, 5.5); sset(9, 250); ) :
   n == 12 ? pr(0, 0, 0, 0, 0, 50, 0);
+  n == 13 ? ( pr(35, 30, 60, 0, 0, 100, 0); );
+  n == 14 ? ( pr(8, 15, 0, 0, 0, 100, 0); );
+  n == 15 ? ( pr(12, 15, 10, 0, 0, 100, 0); );
+  n == 16 ? ( pr(0, 0, 0, 0, 0, 100, 0); sset(7, 25); sset(8, 6); sset(9, 150); );
+  n == 17 ? ( pr(60, 50, 40, 0, 0, 100, 0); );
+  n == 18 ? ( pr(0, 0, 0, 0, 0, 30, 0); );
+  n == 19 ? ( pr(20, 0, 0, 0, -7, 100, 0); );
+  n == 20 ? ( pr(20, 0, 0, 0, 5, 100, 0); );
+  n == 21 ? ( pr(20, 0, 0, -3, -5, 100, 0); );
+  n == 22 ? ( pr(20, 0, 0, 3, 5, 100, 0); );
+  n == 23 ? ( pr(30, 20, 20, -2, 0, 100, 0); );
+  n == 24 ? ( pr(30, 20, 20, 2.5, 0, 100, 0); );
+  n == 25 ? ( pr(15, 0, 0, 0, 0, 100, 0); );
   upd = 1;
 );
 
