@@ -34,15 +34,18 @@ Nube Delay, Nube De-Ess, Nube Limit, Nube Gate, Nube Synth y Nube Sampler.
 ![Nube Tune](docs/captura.png)
 
 - **Editar notas** (como ReaTune manual o Melodyne): pestaña *Editar notas* → la gráfica muestra la canción en el
-  tiempo (compases del proyecto) con tu voz grabada al reproducir. **Arrastra** para dibujar la nota a la que quieres
+  tiempo (compases del proyecto) con tu voz grabada al reproducir. **Clic** = llevar la reproducción ahí (con el
+  ayudante, ver abajo). **Mantén o arrastra** para dibujar la nota a la que quieres
   llevar la voz en ese tramo (se ajusta al semitono; **Shift** = libre en cents, **Alt** = deslizamiento de una nota a
   otra). Arrastra una nota para moverla (arriba / abajo = nota, a los lados = tiempo), sus bordes para alargarla;
   **clic derecho** = borrarla; flechas = ±1 semitono; Supr / retroceso = borrar la elegida; Cmd/Ctrl+Z o
   **Deshacer**. **Detectar notas** convierte la voz que se ve en notas de la escala para arrastrarlas. La línea es la
   nota final de la salida (aunque haya Transponer). *Fuera de notas*: afinar (el autotune de siempre) o natural (solo se
   afinan tus notas). *Comparar sin notas* = A/B sin borrarlas. Las notas y la voz grabada se guardan con el proyecto.
-  Rueda = zoom de tiempo, Cmd + rueda = zoom vertical, arrastrar la regla = moverse, doble clic = seguir la
-  reproducción. Para scripts: sliders 26–30 (agregar nota, borrar, detectar, deshacer).
+  Rueda = zoom de tiempo, Cmd + rueda = zoom vertical, dos dedos a los lados = moverse (natural de Mac), arrastrar la
+  regla = moverse, doble clic = seguir la reproducción.
+  **Ayudante**: un JSFX no puede mover la reproducción de REAPER; `Nube Tune - ayudante.lua` (lo instala `install.sh`,
+  o córrelo una vez como acción) lo hace en segundo plano y se agrega a `Scripts/__startup.lua` para arrancar con REAPER. Para scripts: sliders 26–30 (agregar nota, borrar, detectar, deshacer).
 - **Tonalidad y escala**: 12 tónicas × Cromática, Mayor, Menor, Menor armónica, Menor melódica, Pentatónica mayor y
   menor, Blues, Dórica, Frigia, Lidia, Mixolidia, o **Personalizada**: clic en el teclado (o en los nombres de la
   gráfica) para quitar o activar notas.

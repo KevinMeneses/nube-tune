@@ -35,6 +35,10 @@ def dump():
 def param(n):
     """valor formateado del slider n"""
     m = re.search(rf"^{n} (.*)$", dump(), re.M); return m.group(1).rsplit(" = ", 1)[1] if m else None
+def cursor():
+    m = re.search(r"^cursor = (.*)$", dump(), re.M); return float(m.group(1)) if m else float("nan")
+def play():
+    m = re.search(r"^play = (.*)$", dump(), re.M); return float(m.group(1)) if m else float("nan")
 def num(s):
     try: return float(s.split()[0])
     except Exception: return float("nan")

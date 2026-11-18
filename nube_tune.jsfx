@@ -41,7 +41,7 @@ in_pin:Entrada R
 out_pin:Salida L
 out_pin:Salida R
 
-options:gfx_hz=60 no_meter
+options:gfx_hz=60 no_meter gmem=NubeTune
 
 @init
 gfx_ext_retina = 1;
@@ -688,6 +688,7 @@ s_ver >= 1 ? (
 @gfx 1000 640
 // ======================================================================= interfaz
 SC = gfx_ext_retina > 1 ? gfx_ext_retina : 1;
+gmem[3] = time_precise();   // latido de la interfaz (las pruebas lo leen: si no compila, no late)
 WW = gfx_w; WH = gfx_h;
 
 function fnt(i) (
@@ -873,7 +874,7 @@ function hint_for(id)
   id == 64 ? strcpy(#hint, "Borrar todas las notas dibujadas (se puede deshacer).") :
   id == 65 ? strcpy(#hint, "Fuera de las notas: afinar = el autotune de siempre (tono y escala). Natural = la voz pasa tal cual; solo se afinan tus notas.") :
   id == 66 ? strcpy(#hint, "Comparar: escucha la voz sin tus notas dibujadas (A/B). No las borra; clic otra vez para volver a usarlas.") :
-  id == 110 ? strcpy(#hint, "Arrastra = dibujar una nota (Shift = sin ajustar al semitono, Alt = deslizamiento). Clic derecho = menu. Rueda = zoom.") :
+  id == 110 ? strcpy(#hint, "Clic = llevar la reproduccion ahi. Mantener o arrastrar = dibujar una nota (Shift = fino, Alt = deslizamiento). Clic derecho = menu.") :
   id == 111 ? strcpy(#hint, "Compases: arrastra para moverte en la cancion. Doble clic = seguir la reproduccion. Rueda = zoom.") :
   strcpy(#hint, "Nube Tune: elige la tonalidad y la escala, y ajusta la Velocidad. Pasa el mouse sobre cualquier cosa para ver que hace.");
 );
@@ -1036,6 +1037,14 @@ function detect_range(s0, s1) local(i, c)
   c = 0; i = s0; loop(s1 - s0, pIn[i] > 0 ? c += 1; i += 1; );
   c > 4 ? detect_notes(s0, s1) : flash("No hay voz grabada ahi: reproduce esa parte una vez y vuelve a intentarlo.");
 );
+// mover la reproduccion: lo hace el script 'Nube Tune - ayudante' (un JSFX no puede); gmem[2] = su latido
+function seek_to(t)
+(
+  t = max(t, 0);
+  abs(time_precise() - gmem[2]) < 1.5 ? (
+    gmem[0] = t; gmem[1] += 1; seek_t = t; seek_set = 1;
+  ) : flash("Para mover la reproduccion con un clic corre una vez la accion Nube Tune - ayudante (o install.sh).");
+);
 function ed_press() local(h, p)
 (
   h = seg_hit(mx, my);
@@ -1046,8 +1055,9 @@ function ed_press() local(h, p)
     p = seg_act + 1 + h * 4; ed_o0 = p[0]; ed_o1 = p[1]; ed_o2 = p[2]; ed_o3 = p[3];
     ed_a = ed_o0; ed_b = ed_o1; ed_c = ed_o2; ed_d = ed_o3;
   ) : dbl ? ( follow = 1; tfollow = 1; c_ok = 0; ed_mode = 0; ) : (
+    // vacio: un clic corto mueve la reproduccion; mantener o arrastrar dibuja una nota (desde donde se presiono)
     drag = 1; drag_id = 110;
-    ed_sel = -1; ed_mode = 4; ed_fine = shift;
+    ed_sel = -1; ed_mode = 5; ed_fine = shift; ed_t0 = time_precise();
     ed_a = ed_b = max(x2t(mx), 0); ed_c = ed_d = snapn(y2n(my), ed_fine);
   );
 );
@@ -1060,11 +1070,13 @@ function ed_drag() local(dn, dt)
     ed_a = ed_o0 + dt; ed_b = ed_o1 + dt; ed_c = ed_o2 + dn; ed_d = ed_o3 + dn;
   ) : ed_mode == 2 ? ( ed_a = clamp(x2t(mx), 0, ed_o1 - 0.02); )
     : ed_mode == 3 ? ( ed_b = max(x2t(mx), ed_o0 + 0.02); )
-    : ed_mode == 4 ? ( ed_b = max(x2t(mx), 0); ed_d = (mouse_cap & 16) ? snapn(y2n(my), ed_fine) : ed_c; );
+    : ed_mode == 5 ? ( (abs(mx - ed_mx0) > 4 * SC || abs(my - ed_my0) > 4 * SC || time_precise() - ed_t0 > 0.5) ? ed_mode = 4; );
+  ed_mode == 4 ? ( ed_b = max(x2t(mx), 0); ed_d = (mouse_cap & 16) ? snapn(y2n(my), ed_fine) : ed_c; );
 );
 function ed_release() local(w, a, b, c, d)
 (
   a = min(ed_a, ed_b); b = max(ed_a, ed_b); c = ed_a <= ed_b ? ed_c : ed_d; d = ed_a <= ed_b ? ed_d : ed_c;
+  ed_mode == 5 ? seek_to(x2t(ed_mx0)) :
   ed_mode == 4 ? (
     b - a >= 0.03 ? ( seg_undo_push(); w = seg_w(); seg_ins(w, a, b, c, d); seg_publish(w); ed_sel = ins_idx; );
   ) : ed_mode >= 1 ? (
@@ -1177,7 +1189,7 @@ mouse_wheel != 0 ? (
   mouse_wheel = 0;
 );
 mouse_hwheel != 0 ? (
-  (hover_id == 110 || hover_id == 111) ? ( tv0 = max(tv0 + mouse_hwheel / 120 * tvs * 0.08, 0); tfollow = 0; );
+  (hover_id == 110 || hover_id == 111) ? ( tv0 = max(tv0 - mouse_hwheel / 120 * tvs * 0.08, 0); tfollow = 0; );   // menos: como el desplazamiento natural de Mac
   mouse_hwheel = 0;
 );
 last_lb = lb; last_rb = rbtn;
@@ -1257,6 +1269,9 @@ function draw_track(arr, thick) local(c, j, v, xx, yy, pv, px, py_)
 emode ? (
   // ---- editor: la cancion en el tiempo
   _pp = play_position; _ps = play_state;
+  (_ps & 1) || _pp != last_pp ? seek_set = 0;
+  last_pp = _pp;
+  (!(_ps & 1) && seek_set) ? _pp = seek_t;
   (tfollow && (_ps & 1) && !drag) ? ( (_pp > tv0 + tvs * 0.92 || _pp < tv0) ? tv0 = max(_pp - tvs * 0.08, 0); );
   draw_grid(0);
   acc(0.5); draw_rec(pOut);
@@ -1269,7 +1284,7 @@ emode ? (
       draw_seg(_p[0], _p[1], _p[2], _p[3], _i == ed_sel ? 1 : _i == _hv ? 3 : 0);
     _i += 1;
   );
-  (drag && drag_id == 110 && ed_mode >= 1) ? (
+  (drag && drag_id == 110 && ed_mode >= 1 && ed_mode <= 4) ? (
     ed_a <= ed_b ? draw_seg(ed_a, ed_b, ed_c, ed_d, ed_mode == 4 ? 2 : 1) : draw_seg(ed_b, ed_a, ed_d, ed_c, 2);
   );
   (_pp >= tv0 && _pp <= tv0 + tvs) ? ( gfx_set(1, 1, 1, (_ps & 1) ? 0.8 : 0.35); _xx = t2x(_pp); gfx_line(_xx, dy, _xx, dy + dh - 1); );
@@ -1453,7 +1468,7 @@ sprintf(#s, "%+.1f dB", slider11); knob(11, _kx, _ky, _kr, "Salida", abs(slider1
 // ---- pie: ayuda contextual
 hint_for(hover_id);
 emode && hover_id == 110 ? (
-  (drag && drag_id == 110 && ed_mode >= 1) ? (
+  (drag && drag_id == 110 && ed_mode >= 1 && ed_mode <= 4) ? (
     _a = min(ed_a, ed_b); _bb = max(ed_a, ed_b);
     seg_label(#h1, ed_a <= ed_b ? ed_c : ed_d);
     (ed_c != ed_d) ? ( seg_label(#h2, ed_a <= ed_b ? ed_d : ed_c); strcat(#h1, " a "); strcat(#h1, #h2); );

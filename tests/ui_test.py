@@ -2,7 +2,7 @@
 La menor) y la ventana del FX al frente. OJO: mueve el mouse de verdad; no correr mientras alguien usa REAPER.
 JSFX lee el mouse a 60 Hz y cada ui_dump.lua le quita el foco a la ventana (igual que en Nube Sampler):
 si una acción no cambió nada se repite UNA vez y se cuenta en 'reintentos'. Un control que no responde falla igual."""
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.dirname(__file__))
 from ui import *
 OUT = os.environ.get("NUBE_SHOTS", str(ROOT / "tests/out"))
@@ -25,6 +25,9 @@ DMIN = 1 << 2 | 1 << 4 | 1 << 5 | 1 << 7 | 1 << 9 | 1 << 10 | 1 << 0
 
 subprocess.run(["osascript", "-e", 'tell application "REAPER" to activate']); time.sleep(0.6)
 locate(); focus(); time.sleep(0.5); focus(); time.sleep(0.5)   # calentamiento: el primer clic solo activa la ventana
+gfx_age = float(re.search(r"^gfx = (.*)$", dump(), re.M).group(1))
+check("la interfaz compila y está dibujando (latido, s)", round(gfx_age, 2), lambda v: 0 <= v < 1)
+if gfx_age > 1: print("La interfaz no corre (¿error de compilación en @gfx?): se detienen las pruebas."); sys.exit(1)
 check("arranca con preset 2 (velocidad 20 ms)", num(param(1)), 20.0)
 check("arranca en La menor", (param(12), param(13)), ("A", "Menor"))
 x, y = VELOCIDAD
@@ -70,6 +73,18 @@ shot(f"{OUT}/ui_nota_dibujada.png")
 check("arrastrar la nota hacia arriba la mueve (sigue 1)", act(lambda: drag(400, 250, 400, 200), lambda: num(param(31))) > 0 and nseg(), n0 + 1)
 check("clic derecho sobre la nota la borra", act(lambda: rclick(400, 200), nseg), n0)
 check("Deshacer la recupera", act(lambda: click(*DESHACER), nseg), n0 + 1)
+# clic corto en vacío = mover la reproducción (con el ayudante); mantener y arrastrar = dibujar
+lua("helper_test.lua"); time.sleep(1.5)
+n1 = nseg()
+def qclick(x, y): focus(); cc(f"m:{pt(x, y)}", "w:150", f"dd:{pt(x, y)}", f"du:{pt(x, y)}")   # clic rápido (~0.1 s)
+qclick(840, 400); p1 = play(); qclick(160, 400); p2 = play()
+check("clic corto mueve la reproducción (salto hacia atrás, s)", round(p1 - p2, 2), lambda v: 5.0 < v < 6.6)   # 680 px de 932 con 8 s en pantalla = 5.84 s
+check("  y no dibuja notas", nseg(), n1)
+def hold_draw():
+    focus(); cc(f"m:{pt(600, 360)}", "w:150", f"dd:{pt(600, 360)}", "w:700")
+    for k in range(1, 6): cc(f"m:{pt(600 + 30 * k, 360)}")
+    cc(f"du:{pt(750, 360)}")
+check("mantener el clic y arrastrar dibuja", act(hold_draw, nseg), n1 + 1)
 check("Detectar notas crea notas de la voz", act(lambda: click(*DETECTAR), nseg), lambda v: v > n0 + 1)
 shot(f"{OUT}/ui_detectadas.png")
 check("Fuera de notas -> natural", act(lambda: click(*FUERA), lambda: param(24)), "Dejar natural")
