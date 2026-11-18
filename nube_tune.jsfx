@@ -917,6 +917,9 @@ function menu_list(sl, n, a, b, c, d) local(r, i)
 );
 
 // ---------------------------------------------------------- editor de notas (la cancion en el tiempo)
+// (n2y / y2n van aqui: EEL2 exige definir las funciones antes de usarlas)
+function n2y(n) ( dy + dh * 0.5 - (n - vcen) / vrange * dh );
+function y2n(y) ( vcen - (y - dy - dh * 0.5) / dh * vrange );
 function t2x(t) ( gx0 + (t - tv0) / tvs * gw );
 function x2t(x) ( tv0 + (x - gx0) / gw * tvs );
 function snapn(n, fine) ( fine ? floor(n * 100 + 0.5) / 100 : floor(n + 0.5) );
@@ -938,7 +941,7 @@ function seg_hit(x, y) local(b, n, i, p, xa, xb, yy, r, hh)
     xa = t2x(p[0]); xb = t2x(p[1]);
     (x >= xa - 3 * SC && x <= xb + 3 * SC) ? (
       yy = n2y(p[2] + (p[3] - p[2]) * clamp((x - xa) / max(xb - xa, 1), 0, 1));
-      abs(y - yy) <= hh * 0.5 + 3 * SC ? (
+      abs(y - yy) <= max(hh * 0.5 + 3 * SC, (p[2] == p[3] ? 0.5 * dh / vrange : 0)) ? (   // nota recta: toda su fila
         r = i;
         hit_part = xb - xa < 16 * SC ? 0 : x - xa < 6 * SC ? 1 : xb - x < 6 * SC ? 2 : 0;
       );
@@ -1042,7 +1045,7 @@ function ed_press() local(h, p)
     ed_sel = h; ed_mode = 1 + hit_part;
     p = seg_act + 1 + h * 4; ed_o0 = p[0]; ed_o1 = p[1]; ed_o2 = p[2]; ed_o3 = p[3];
     ed_a = ed_o0; ed_b = ed_o1; ed_c = ed_o2; ed_d = ed_o3;
-  ) : dbl ? ( follow = 1; tfollow = 1; ed_mode = 0; ) : (
+  ) : dbl ? ( follow = 1; tfollow = 1; c_ok = 0; ed_mode = 0; ) : (
     drag = 1; drag_id = 110;
     ed_sel = -1; ed_mode = 4; ed_fine = shift;
     ed_a = ed_b = max(x2t(mx), 0); ed_c = ed_d = snapn(y2n(my), ed_fine);
@@ -1096,8 +1099,6 @@ gx0 = lx0 + LW; gw = rx0 - (emode ? 0 : 12 * SC) - gx0;
 py = dy + dh + 10 * SC;
 vrange == 0 ? ( vrange = 14; vcen = 57; follow = 1; );
 tvs <= 0 ? ( tvs = 8; tv0 = 0; tfollow = 1; ed_sel = -1; );
-function n2y(n) ( dy + dh * 0.5 - (n - vcen) / vrange * dh );
-function y2n(y) ( vcen - (y - dy - dh * 0.5) / dh * vrange );
 fps = srate / HOP;
 
 // ======================================================================= mouse
@@ -1113,7 +1114,7 @@ lb && !last_lb ? (
     dbl ? ctl_default(hover_id) : ( drag = 1; drag_id = hover_id; drag_my = my; drag_n = ctl_get(hover_id); );
   ) : hover_id == 100 ? (
     dbl ? ( follow = 1; ) : ( drag = 1; drag_id = 100; drag_my = my; drag_v = vcen; );
-  ) : hover_id == 101 ? ( drag = 1; drag_id = 101; drag_my = my; drag_v = vcen; drag_mv = 0; )
+  ) : hover_id == 101 ? ( emode ? ( drag = 1; drag_id = 101; drag_my = my; drag_v = vcen; drag_mv = 0; ) : toggle_pc(pcl(floor(y2n(my) + 0.5))); )
     : hover_id == 110 ? ed_press()
     : hover_id == 111 ? ( dbl ? tfollow = 1 : ( drag = 1; drag_id = 111; drag_mx = mx; drag_t = tv0; ); )
     : hover_id == 60 ? emode = 0
@@ -1199,7 +1200,14 @@ _x + 150 * SC < WW ? dropdown(54, _x, _y, min(160 * SC, WW - _x - 14 * SC), _h, 
 
 // ---- grafica de tono (rollo de piano)
 panel_bg(); gfx_rect(lx0, dy, LW + gw, dh, 1);
-follow ? (
+(follow && emode) ? (
+  // editor: centrar en la voz grabada que se ve, solo al cambiar de pagina / zoom (no se mueve mientras editas)
+  (!c_ok || tv0 != c_tv0 || tvs != c_tvs) && !drag ? (
+    _n = 0; _sum = 0; _i = clamp(floor(tv0 * PTR), 0, NPT); _e = clamp(ceil((tv0 + tvs) * PTR), _i, NPT);
+    loop(_e - _i, pIn[_i] > 0 ? ( _sum += pIn[_i]; _n += 1; ); _i += 1; );
+    _n > 10 ? ( vcen = _sum / _n; c_ok = 1; c_tv0 = tv0; c_tvs = tvs; ) : c_ok = 0;
+  );
+) : follow ? (
   // centrar en la voz reciente
   _n = 0; _sum = 0; _i = 1;
   loop(min(NH - 1, floor(fps * 3)), _j = (hw - _i) & NHM; hIn[_j] > 0 ? ( _sum += hIn[_j]; _n += 1; ); _i += 1; );
@@ -1269,7 +1277,11 @@ emode ? (
   gfx_set(0.115, 0.125, 0.16, 1); gfx_rect(gx0, dy, gw, RUL, 1);
   draw_grid(1);
   (_pp >= tv0 && _pp <= tv0 + tvs) ? ( gfx_set(1, 1, 1, 0.9); _xx = t2x(_pp); gfx_triangle(_xx - 5 * SC, dy, _xx + 5 * SC, dy, _xx, dy + 7 * SC); );
-  !tfollow ? ( fnt(8); gfx_set(0.62, 0.65, 0.72, 1); text_r("doble clic = seguir la reproduccion", gx0, dy, gw - 8 * SC, RUL); );
+  !tfollow ? (
+    fnt(8); gfx_measurestr("doble clic = seguir la reproduccion", _tw, _th);
+    gfx_set(0.115, 0.125, 0.16, 1); gfx_rect(gx0 + gw - _tw - 16 * SC, dy, _tw + 16 * SC, RUL, 1);
+    gfx_set(0.62, 0.65, 0.72, 1); text_r("doble clic = seguir la reproduccion", gx0, dy, gw - 8 * SC, RUL);
+  );
   // leyenda abajo
   fnt(4); _xx = gx0 + 10 * SC; _yy = dy + dh - 20 * SC;
   inc(1); text_l("TU VOZ", _xx, _yy, 14 * SC); gfx_measurestr("TU VOZ", _tw, _th); _xx += _tw + 14 * SC;
