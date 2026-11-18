@@ -73,7 +73,7 @@ local CASES = {
   {"voz_tr12",       "voz.wav",      P{[21] = 8}},
   {"voz_trm12",      "voz.wav",      P{[21] = 7}},
 }
-for p = 4, 13 do if p ~= 7 and p ~= 8 then CASES[#CASES + 1] = {"preset" .. p, "voz.wav", P{[21] = p}} end end
+for p = 4, 26 do if p ~= 7 and p ~= 8 and (p < 20 or p > 23) then CASES[#CASES + 1] = {"preset" .. p, "voz.wav", P{[21] = p}} end end
 CASES[#CASES + 1] = {"seg_reload", "vowel213.wav", P{}, {segs = {{1.0, 2.0, 52, 52}}, reload = true}}   -- al final: reabre el proyecto
 
 local PREV = reaper.EnumProjects(-1)
