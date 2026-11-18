@@ -6,4 +6,6 @@ for p = 0, reaper.TrackFX_GetNumParams(tr, 0) - 1 do
   local _, n = reaper.TrackFX_GetParamName(tr, 0, p, ""); local _, v = reaper.TrackFX_GetFormattedParamValue(tr, 0, p, "")
   f:write(p + 1, " ", n, " = ", v, "\n")
 end
+f:write("cursor = ", reaper.GetCursorPosition(), "\n", "play = ", reaper.GetPlayPosition(), "\n")
+reaper.gmem_attach("NubeTune"); f:write("gfx = ", reaper.time_precise() - reaper.gmem_read(3), "\n")
 f:write("done\n"); f:close()

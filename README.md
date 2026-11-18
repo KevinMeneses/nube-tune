@@ -6,7 +6,9 @@ Linux), part of the [Nube plugins](https://github.com/KevinMeneses/nube-plugins)
 
 ![Nube Tune](docs/captura.png)
 
-Key + 12 scales or any custom set of notes (click the on-screen keyboard), retune speed from robot (0 ms) to natural,
+Key + 12 scales or any custom set of notes (click the on-screen keyboard), **drawn notes** (a ReaTune-manual /
+Melodyne-style editor: draw the note you want on the song's timeline, move it, stretch it, or detect notes from the
+recorded voice and drag them), retune speed from robot (0 ms) to natural,
 humanize, flex-tune, formant-preserving pitch shifting (pitch-synchronous PSOLA) with a separate formant control,
 transpose ±24 semitones, added vibrato, A4 reference, MIDI target notes (held notes = scale, or exact note), key
 detection, live piano-roll pitch graph, 13 presets. ~3 % CPU, 31 ms latency (compensated by REAPER).
@@ -31,6 +33,19 @@ Nube Delay, Nube De-Ess, Nube Limit, Nube Gate, Nube Synth y Nube Sampler.
 
 ![Nube Tune](docs/captura.png)
 
+- **Editar notas** (como ReaTune manual o Melodyne): pestaña *Editar notas* → la gráfica muestra la canción en el
+  tiempo (compases del proyecto) con tu voz grabada al reproducir. **Clic** = llevar la reproducción ahí (con el
+  ayudante, ver abajo). **Mantén o arrastra** para dibujar la nota a la que quieres
+  llevar la voz en ese tramo (se ajusta al semitono; **Shift** = libre en cents, **Alt** = deslizamiento de una nota a
+  otra). Arrastra una nota para moverla (arriba / abajo = nota, a los lados = tiempo), sus bordes para alargarla;
+  **clic derecho** = borrarla; flechas = ±1 semitono; Supr / retroceso = borrar la elegida; Cmd/Ctrl+Z o
+  **Deshacer**. **Detectar notas** convierte la voz que se ve en notas de la escala para arrastrarlas. La línea es la
+  nota final de la salida (aunque haya Transponer). *Fuera de notas*: afinar (el autotune de siempre) o natural (solo se
+  afinan tus notas). *Comparar sin notas* = A/B sin borrarlas. Las notas y la voz grabada se guardan con el proyecto.
+  Rueda = zoom de tiempo, Cmd + rueda = zoom vertical, dos dedos a los lados = moverse (natural de Mac), arrastrar la
+  regla = moverse, doble clic = seguir la reproducción.
+  **Ayudante**: un JSFX no puede mover la reproducción de REAPER; `Nube Tune - ayudante.lua` (lo instala `install.sh`,
+  o córrelo una vez como acción) lo hace en segundo plano y se agrega a `Scripts/__startup.lua` para arrancar con REAPER. Para scripts: sliders 26–30 (agregar nota, borrar, detectar, deshacer).
 - **Tonalidad y escala**: 12 tónicas × Cromática, Mayor, Menor, Menor armónica, Menor melódica, Pentatónica mayor y
   menor, Blues, Dórica, Frigia, Lidia, Mixolidia, o **Personalizada**: clic en el teclado (o en los nombres de la
   gráfica) para quitar o activar notas.
@@ -77,12 +92,15 @@ Crea un enlace en `~/Library/Application Support/REAPER/Effects/Nube Tune/`. En 
 |---|---|
 | Perillas | Arrastra arriba/abajo o rueda; **Shift** = fino; **doble clic** = valor por defecto |
 | Notas de la escala | Clic en el teclado o en los nombres de la gráfica |
-| Gráfica | Rueda = zoom, arrastrar = mover, doble clic = seguir la voz, clic derecho = presets |
+| Gráfica (en vivo) | Rueda = zoom, arrastrar = mover, doble clic = seguir la voz, clic derecho = presets |
+| Editar notas | Arrastrar = dibujar nota (Shift fino, Alt deslizamiento), arrastrar nota = mover, clic derecho = borrar / menú |
 
 ## Pruebas
 
-- `tests/run.sh [patrón]` (`NUBE_PY=/ruta/a/python`): renderiza 54 casos en una pestaña temporal de REAPER y los compara con
-  la teoría (83 chequeos): afinación exacta (±0.5 cents; medida −0.04 a 48, 44.1 y 96 kHz), las escalas, notas
+- `tests/run.sh [patrón]` (`NUBE_PY=/ruta/a/python`): renderiza 63 casos en una pestaña temporal de REAPER y los compara con
+  la teoría (103 chequeos; los de notas dibujadas: la nota exacta ±0.5 ct, empieza y termina a tiempo, deslizamiento de
+  7 st/s, fuera natural / afinar, A/B, con transponer, recortes, detectar notas en vocal y voz real, y que se guarden al
+  reabrir el proyecto): afinación exacta (±0.5 cents; medida −0.04 a 48, 44.1 y 96 kHz), las escalas, notas
   personalizadas, transponer ±12 / +7 / −7, La = 432, voz grave a 84 Hz, formantes por LPC (preservar ±1 %, seguir el
   tono +26 %, perilla ±3 st), nivel, periodicidad de la salida, velocidad 0 y 100 ms, flex 50 / 100 %, vibrato
   (aplanado / respetado / humanizar), vibrato agregado (6.01 Hz) y su retardo, MIDI (nota exacta, notas = escala,
